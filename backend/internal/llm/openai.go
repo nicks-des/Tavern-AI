@@ -56,10 +56,18 @@ type streamChunk struct {
 	} `json:"choices"`
 }
 
-func (c *Client) BuildMessages(character *models.Character, history []models.Message, userMsg string, worldbookContext string) []chatMessage {
+func (c *Client) BuildMessages(character *models.Character, history []models.Message, userMsg string, worldbookContext string, roomContext string, roomOverrides string) []chatMessage {
 	msgs := []chatMessage{}
 
 	systemPrompt := buildSystemPrompt(character)
+
+	// Room context first (highest priority)
+	if roomContext != "" {
+		systemPrompt = "[当前场景]\n" + roomContext + "\n\n" + systemPrompt
+	}
+	if roomOverrides != "" {
+		systemPrompt = "[角色场景覆盖]\n" + roomOverrides + "\n\n" + systemPrompt
+	}
 
 	// Inject worldbook BEFORE personality for higher priority
 	if worldbookContext != "" {

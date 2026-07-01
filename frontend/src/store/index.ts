@@ -10,6 +10,7 @@ interface Store {
   sessions: Session[]
   rooms: Room[]
   activeSessionId: string | null
+  activeRoomId: string | null
   isStreaming: boolean
   streamContent: string
   currentView: 'chat' | 'manage'
@@ -17,6 +18,7 @@ interface Store {
 
   setCurrentView: (v: 'chat' | 'manage') => void
   setActiveSession: (id: string) => void
+  setActiveRoom: (id: string | null) => void
   createSession: (characterId: string) => Session
   addMessage: (sessionId: string, msg: Message) => void
   updateLastMessage: (sessionId: string, content: string) => void
@@ -40,6 +42,7 @@ export const useStore = create<Store>()(
       sessions: [],
       rooms: [],
       activeSessionId: null,
+      activeRoomId: null,
       isStreaming: false,
       streamContent: '',
       currentView: 'chat',
@@ -47,6 +50,7 @@ export const useStore = create<Store>()(
 
       setCurrentView: (v) => set({ currentView: v }),
       setActiveSession: (id) => set({ activeSessionId: id }),
+      setActiveRoom: (id) => set({ activeRoomId: id, activeSessionId: null }),
 
       createSession: (characterId) => {
         const char = get().characters.find((c) => c.id === characterId)

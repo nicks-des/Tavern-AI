@@ -17,6 +17,7 @@ type ChatHandler struct {
 	messageRepo   *repository.MessageRepo
 	characterRepo *repository.CharacterRepo
 	worldbookRepo *repository.WorldBookRepo
+	roomRepo      *repository.RoomRepo
 	llmClient     *llm.Client
 }
 
@@ -25,6 +26,7 @@ func NewChatHandler(
 	mr *repository.MessageRepo,
 	cr *repository.CharacterRepo,
 	wr *repository.WorldBookRepo,
+	rr *repository.RoomRepo,
 	lc *llm.Client,
 ) *ChatHandler {
 	return &ChatHandler{
@@ -32,6 +34,7 @@ func NewChatHandler(
 		messageRepo:   mr,
 		characterRepo: cr,
 		worldbookRepo: wr,
+		roomRepo:      rr,
 		llmClient:     lc,
 	}
 }
@@ -85,6 +88,22 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	roomContext := ""
+	roomOverrides := ""
+	if session.RoomID != nil && h.roomRepo != nil {
+		room, err := h.roomRepo.GetByID(*session.RoomID)
+		if err == nil && room.WorldRules != "" {
+			roomContext = room.WorldRules
+		}
+
+		members, _ := h.roomRepo.ListMembers(*session.RoomID)
+		for _, m := range members {
+			if m.CharacterID == session.CharacterID && m.Overrides != "" {
+				roomOverrides = m.Overrides
+			}
+		}
+	}
+
 	userMsg := &models.Message{
 		ID:        generateID(),
 		SessionID: sessionID,
@@ -97,7 +116,7 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	messages := h.llmClient.BuildMessages(character, history, req.Message, worldbookContext)
+	messages := h.llmClient.BuildMessages(character, history, req.Message, worldbookContext, roomContext, roomOverrides)
 
 	if h.llmClient == nil {
 		h.handleMockChat(w, sessionID, character, req.Message)

@@ -4,9 +4,10 @@ import { Sidebar } from './components/Sidebar'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ChatArea } from './components/ChatArea'
 import { CharacterManager } from './components/CharacterManager'
+import { RoomDetail } from './components/RoomDetail'
 
 export default function App() {
-  const { activeSessionId, currentView, setCurrentView, loadCharacters } = useStore()
+  const { activeSessionId, activeRoomId, currentView, setCurrentView, loadCharacters } = useStore()
 
   useEffect(() => {
     loadCharacters()
@@ -18,6 +19,8 @@ export default function App() {
       <main className="flex-1 flex flex-col min-w-0">
         {currentView === 'manage' ? (
           <CharacterManager onClose={() => setCurrentView('chat')} />
+        ) : activeRoomId ? (
+          <RoomDetail />
         ) : activeSessionId ? (
           <ChatArea />
         ) : (

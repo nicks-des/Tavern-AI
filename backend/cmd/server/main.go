@@ -42,6 +42,10 @@ func main() {
 	wbHandler := handlers.NewWorldBookHandler(wbRepo)
 	wbHandler.Register(mux)
 
+	roomRepo := repository.NewRoomRepo(db)
+	roomHandler := handlers.NewRoomHandler(roomRepo, charRepo)
+	roomHandler.Register(mux)
+
 	var llmClient *llm.Client
 	if cfg.OpenAIKey != "" {
 		llmClient = llm.NewClient(llm.Config{
@@ -54,7 +58,7 @@ func main() {
 		fmt.Println("LLM: no API key set, using mock mode")
 	}
 
-	chatHandler := handlers.NewChatHandler(sessionRepo, messageRepo, charRepo, wbRepo, llmClient)
+	chatHandler := handlers.NewChatHandler(sessionRepo, messageRepo, charRepo, wbRepo, roomRepo, llmClient)
 	chatHandler.Register(mux)
 
 	addr := ":" + cfg.HTTPPort
