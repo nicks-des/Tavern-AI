@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useStore } from '../store'
 import { CharacterAvatar } from './CharacterAvatar'
 import { CharacterForm } from './CharacterForm'
+import { WorldBookEditor } from './WorldBookEditor'
 import type { Character } from '../types'
 
 export function CharacterManager({ onClose }: { onClose: () => void }) {
@@ -177,6 +178,10 @@ export function CharacterManager({ onClose }: { onClose: () => void }) {
                   ))}
                 </div>
               )}
+
+              <div className="mb-3">
+                <WorldBookEditor characterId={c.id} />
+              </div>
 
               <div className="flex gap-2">
                 <button

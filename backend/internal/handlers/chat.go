@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tavern-ai/backend/internal/llm"
@@ -15,6 +16,7 @@ type ChatHandler struct {
 	sessionRepo   *repository.SessionRepo
 	messageRepo   *repository.MessageRepo
 	characterRepo *repository.CharacterRepo
+	worldbookRepo *repository.WorldBookRepo
 	llmClient     *llm.Client
 }
 
@@ -22,12 +24,14 @@ func NewChatHandler(
 	sr *repository.SessionRepo,
 	mr *repository.MessageRepo,
 	cr *repository.CharacterRepo,
+	wr *repository.WorldBookRepo,
 	lc *llm.Client,
 ) *ChatHandler {
 	return &ChatHandler{
 		sessionRepo:   sr,
 		messageRepo:   mr,
 		characterRepo: cr,
+		worldbookRepo: wr,
 		llmClient:     lc,
 	}
 }
@@ -69,6 +73,18 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	worldbookContext := ""
+	if h.worldbookRepo != nil {
+		entries, err := h.worldbookRepo.GetEnabledByCharacter(session.CharacterID)
+		if err == nil {
+			for _, entry := range entries {
+				if matchKeywords(req.Message, entry.Keywords) {
+					worldbookContext += entry.Content + "\n"
+				}
+			}
+		}
+	}
+
 	userMsg := &models.Message{
 		ID:        generateID(),
 		SessionID: sessionID,
@@ -81,14 +97,14 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	messages := h.llmClient.BuildMessages(character, history, req.Message)
+	messages := h.llmClient.BuildMessages(character, history, req.Message, worldbookContext)
 
 	if h.llmClient == nil {
 		h.handleMockChat(w, sessionID, character, req.Message)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	flusher, ok := w.(http.Flusher)
@@ -123,7 +139,7 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ChatHandler) handleMockChat(w http.ResponseWriter, sessionID string, character *models.Character, msg string) {
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	flusher, _ := w.(http.Flusher)
@@ -151,4 +167,15 @@ func (h *ChatHandler) handleMockChat(w http.ResponseWriter, sessionID string, ch
 	if flusher != nil {
 		flusher.Flush()
 	}
+}
+
+func matchKeywords(message, keywords string) bool {
+	message = strings.ToLower(message)
+	for _, kw := range strings.Split(keywords, ",") {
+		kw = strings.TrimSpace(strings.ToLower(kw))
+		if kw != "" && strings.Contains(message, kw) {
+			return true
+		}
+	}
+	return false
 }

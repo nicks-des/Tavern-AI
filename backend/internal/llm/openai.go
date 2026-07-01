@@ -56,10 +56,16 @@ type streamChunk struct {
 	} `json:"choices"`
 }
 
-func (c *Client) BuildMessages(character *models.Character, history []models.Message, userMsg string) []chatMessage {
+func (c *Client) BuildMessages(character *models.Character, history []models.Message, userMsg string, worldbookContext string) []chatMessage {
 	msgs := []chatMessage{}
 
 	systemPrompt := buildSystemPrompt(character)
+
+	// Inject worldbook BEFORE personality for higher priority
+	if worldbookContext != "" {
+		systemPrompt = "[你必须严格遵守以下世界设定，这些都是不可改变的客观事实]\n" + worldbookContext + "\n\n" + systemPrompt
+	}
+
 	if systemPrompt != "" {
 		msgs = append(msgs, chatMessage{Role: "system", Content: systemPrompt})
 	}

@@ -108,6 +108,17 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_sessions_character ON sessions(character_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_characters_scope ON characters(scope)`,
+
+		`CREATE TABLE IF NOT EXISTS world_book_entries (
+			id TEXT PRIMARY KEY,
+			character_id TEXT NOT NULL,
+			keywords TEXT NOT NULL DEFAULT '',
+			content TEXT NOT NULL DEFAULT '',
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_worldbook_character ON world_book_entries(character_id)`,
 	}
 
 	for i, m := range migrations {

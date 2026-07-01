@@ -1,0 +1,13 @@
+Database initialized at: ./data
+LLM: OpenAI client ready
+Tavern AI backend starting on :8081
+Endpoints: /health, /api/characters, /api/sessions, /api/sessions/{id}/chat
+2026/07/01 13:47:10 [WorldBook] char=2026070113424283292b entries=8 msg="国王去哪了"
+2026/07/01 13:47:10 [WorldBook] keywords="国王,阿尔萨斯" matched=true
+2026/07/01 13:47:10 [WorldBook] keywords="魔法,法术,魔力" matched=false
+2026/07/01 13:47:10 [WorldBook] keywords="冰原,北方,寒冷" matched=false
+2026/07/01 13:47:10 [WorldBook] keywords="水晶,宝石,矿石" matched=false
+2026/07/01 13:47:10 [WorldBook] keywords="战争,叛军,起义" matched=false
+2026/07/01 13:47:10 [WorldBook] keywords="酒馆,旅店,客栈" matched=false
+2026/07/01 13:47:10 [WorldBook] keywords="龙,巨龙,弗罗斯特" matched=false
+2026/07/01 13:47:10 [WorldBook] keywords="神器,寒霜之心,宝物" matched=false

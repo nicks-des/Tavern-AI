@@ -58,3 +58,12 @@ type RoomMember struct {
 	// Overrides are stored as JSON string in SQLite
 	Overrides string `json:"overrides"`
 }
+
+type WorldBookEntry struct {
+	ID          string    `json:"id"`
+	CharacterID string    `json:"characterId"`
+	Keywords    string    `json:"keywords"`
+	Content     string    `json:"content"`
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"createdAt"`
+}

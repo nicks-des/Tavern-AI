@@ -64,3 +64,12 @@ export interface ChatState {
   isStreaming: boolean
   streamContent: string
 }
+
+export interface WorldBookEntry {
+  id: string
+  characterId: string
+  keywords: string
+  content: string
+  enabled: boolean
+  createdAt: string
+}
