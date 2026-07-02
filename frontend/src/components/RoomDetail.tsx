@@ -313,12 +313,26 @@ export function RoomDetail() {
         </div>
       )}
 
-      {room?.worldState && room.worldState !== '{}' && room.worldState !== '{"round":0}' && (
-        <div className="mx-4 mt-2 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 shrink-0">
-          <p className="text-xs font-medium text-amber-400 mb-1">世界状态</p>
-          <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{JSON.stringify(JSON.parse(room.worldState), null, 2)}</pre>
-        </div>
-      )}
+      {room?.worldState && room.worldState !== '{}' && room.worldState !== '{"round":0}' && (() => {
+        try {
+          const state = JSON.parse(room.worldState)
+          const keys = Object.entries(state).filter(([k]) => !['round'].includes(k))
+          if (keys.length === 0) return null
+          return (
+            <div className="mx-4 mt-2 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 shrink-0">
+              <p className="text-xs font-medium text-amber-400 mb-2">世界状态</p>
+              <div className="flex flex-wrap gap-1.5">
+                {keys.map(([k, v]) => (
+                  <span key={k} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                    <span className="opacity-50">{k}</span>
+                    <span className="font-medium">{typeof v === 'string' ? v.slice(0, 20) : String(v)}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )
+        } catch { return null }
+      })()}
 
       {/* Character selector */}
       <div className="px-4 py-2 flex items-center gap-3 border-b border-tavern-700/50 shrink-0">
@@ -365,24 +379,50 @@ export function RoomDetail() {
       )}
 
       {/* Chat area */}
-      <div ref={chatRef} className="flex-1 overflow-y-auto py-2 min-h-0">
-        {messages.length === 0 && (
+      <div ref={chatRef} className="flex-1 overflow-y-auto py-3 min-h-0">
+        {messages.length === 0 && !streaming && (
           <div className="flex items-center justify-center h-full">
-            <p className="text-sm text-gray-500">选择角色后开始对话</p>
+            <p className="text-sm text-gray-500">选择角色后开始对话，或点击「开始运行」</p>
           </div>
         )}
         {messages.map((msg) => {
-          const char = characters.find((c) => c.name === (msg as any).charName)
-          return <MessageBubble key={msg.id} message={msg} />
+          const charMatch = msg.content.match(/^\*\*(.+?)\*\*:\s*/)
+          const charName = charMatch ? charMatch[1] : ''
+          const displayContent = charMatch ? msg.content.slice(charMatch[0].length) : msg.content
+
+          if (msg.role === 'user') {
+            return (
+              <div key={msg.id} className="flex gap-3 px-4 py-2 justify-end">
+                <div className="max-w-[70%] bg-accent text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                </div>
+              </div>
+            )
+          }
+
+          if (msg.isStreaming) {
+            return null // handled by streaming bubble below
+          }
+
+          return (
+            <div key={msg.id} className="flex gap-2.5 px-4 py-2 items-start">
+              <CharacterAvatar name={charName || 'AI'} size="sm" />
+              <div className="max-w-[75%]">
+                {charName && <p className="text-xs font-medium text-gray-400 mb-1">{charName}</p>}
+                <div className="bg-tavern-800/60 rounded-2xl rounded-bl-md px-4 py-2.5 text-sm text-gray-100">
+                  <p className="whitespace-pre-wrap">{displayContent}</p>
+                </div>
+              </div>
+            </div>
+          )
         })}
         {streaming && streamContent && (
-          <div className="px-4 py-3">
+          <div className="flex gap-2.5 px-4 py-2 items-start">
+            {streamCharName && <CharacterAvatar name={streamCharName} size="sm" />}
             <div className="max-w-[75%]">
-              {streamCharName && (
-                <p className="text-xs text-accent-light mb-1 ml-1">{streamCharName}</p>
-              )}
-              <div className="bg-tavern-800/60 rounded-2xl rounded-bl-md px-4 py-3">
-                <div className="whitespace-pre-wrap text-sm text-gray-100">
+              {streamCharName && <p className="text-xs font-medium text-accent-light mb-1">{streamCharName}</p>}
+              <div className="bg-tavern-800/60 rounded-2xl rounded-bl-md px-4 py-2.5">
+                <div className="text-sm text-gray-100 whitespace-pre-wrap">
                   {streamContent}
                   <span className="typing-cursor" />
                 </div>
