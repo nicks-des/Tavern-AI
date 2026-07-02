@@ -228,6 +228,25 @@ func recentDialogue(msgs []models.Message) string {
 	return strings.Join(lines, "\n")
 }
 
+func compressHistory(client *llm.Client, msgs []models.Message) string {
+	if len(msgs) < 6 || client == nil {
+		return ""
+	}
+	oldMsgs := msgs[:len(msgs)-4] // all but last 4
+	var lines []string
+	for _, m := range oldMsgs {
+		lines = append(lines, m.Content)
+	}
+	prompt := "Summarize this conversation in 1-2 short sentences: " + strings.Join(lines, "\n")
+	resp, err := client.Chat([]llm.ChatMessage{
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		return ""
+	}
+	return resp
+}
+
 func updateWorldState(stateJSON, action, content string) string {
 	state := make(map[string]any)
 	json.Unmarshal([]byte(stateJSON), &state)
@@ -306,6 +325,17 @@ func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		default:
+		}
+
+		// Compress old messages if too many
+		if len(recentMessages) > 10 {
+			summary := compressHistory(h.llmClient, recentMessages)
+			if summary != "" {
+				recentMessages = []models.Message{
+					{Role: "system", Content: "[Summary] " + summary},
+				}
+				recentMessages = append(recentMessages, recentMessages[len(recentMessages)-6:]...)
+			}
 		}
 
 		var nextMember *models.RoomMember
