@@ -19,7 +19,7 @@ export const sessionApi = {
     api.get<Message[]>(`/sessions/${sessionId}/messages`),
 
   chatStream: (sessionId: string, message: string, characterId?: string, roomId?: string) =>
-    fetch(`/api/sessions/${sessionId}/chat`, {
+    fetch(`http://localhost:8081/api/sessions/${sessionId}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message, characterId, roomId }),

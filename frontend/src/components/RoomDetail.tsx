@@ -19,7 +19,9 @@ export function RoomDetail() {
   const [streamContent, setStreamContent] = useState('')
   const [streamCharName, setStreamCharName] = useState('')
   const [autoRunning, setAutoRunning] = useState(false)
+  const [paused, setPaused] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const autoAbortRef = useRef<AbortController | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const globalChars = characters.filter((c) => c.scope === 'global')
 
@@ -51,13 +53,24 @@ export function RoomDetail() {
     setMembers(members.filter((m) => m.characterId !== characterId))
   }
 
+  const handleStop = () => {
+    autoAbortRef.current?.abort()
+    setAutoRunning(false)
+    setPaused(true)
+  }
+
   const handleAutoRun = async () => {
     if (!activeRoomId || autoRunning) return
+    setPaused(false)
     setAutoRunning(true)
-    setMessages([])
+    setStreaming(true)
+    if (!paused) setMessages([])
 
     try {
-      const res = await fetch(`/api/rooms/${activeRoomId}/run`, { method: 'POST' })
+      const controller = new AbortController()
+      autoAbortRef.current = controller
+
+      const res = await fetch(`http://localhost:8081/api/rooms/${activeRoomId}/run`, { method: 'POST', signal: controller.signal })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
       const reader = res.body?.getReader()
@@ -118,6 +131,7 @@ export function RoomDetail() {
       console.error('Auto run error:', err)
     } finally {
       setAutoRunning(false)
+      setStreaming(false)
       setStreamContent('')
       setStreamCharName('')
       if (activeRoomId) {
@@ -270,11 +284,11 @@ export function RoomDetail() {
         </button>
         <span className="text-sm font-medium text-gray-200">{room?.name ?? ''}</span>
         <button
-          onClick={handleAutoRun}
-          disabled={autoRunning || members.length < 2}
-          className={`ml-auto px-3 py-1 rounded-lg text-xs font-medium transition-colors ${autoRunning ? 'bg-amber-500/20 text-amber-400 animate-pulse' : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'} disabled:opacity-30`}
+          onClick={autoRunning ? handleStop : handleAutoRun}
+          disabled={members.length < 2}
+          className={`ml-auto px-3 py-1 rounded-lg text-xs font-medium transition-colors ${autoRunning ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30' : paused ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'} disabled:opacity-30`}
         >
-          {autoRunning ? '运行中...' : '开始运行'}
+          {autoRunning ? '暂停' : paused ? '继续运行' : '开始运行'}
         </button>
       </header>
 

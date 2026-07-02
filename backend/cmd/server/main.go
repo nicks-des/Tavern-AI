@@ -29,6 +29,11 @@ func main() {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
+	addr := ":" + cfg.HTTPPort
+	fmt.Printf("Tavern AI backend starting on %s\n", addr)
+
+	handler := corsMiddleware(mux)
+
 	charRepo := repository.NewCharacterRepo(db)
 	charHandler := handlers.NewCharacterHandler(charRepo)
 	charHandler.Register(mux)
@@ -61,10 +66,21 @@ func main() {
 	chatHandler := handlers.NewChatHandler(sessionRepo, messageRepo, charRepo, wbRepo, roomRepo, llmClient)
 	chatHandler.Register(mux)
 
-	addr := ":" + cfg.HTTPPort
-	fmt.Printf("Tavern AI backend starting on %s\n", addr)
 	fmt.Println("Endpoints: /health, /api/characters, /api/sessions, /api/sessions/{id}/chat")
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, handler); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(200)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

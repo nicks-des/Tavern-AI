@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -229,7 +230,12 @@ func updateWorldState(stateJSON, action, content string) string {
 	json.Unmarshal([]byte(stateJSON), &state)
 	state["lastAction"] = action
 	state["lastActionBy"] = time.Now().Format("15:04")
-	state["round"] = state["round"].(float64) + 1
+
+	if r, ok := state["round"].(float64); ok {
+		state["round"] = r + 1
+	} else {
+		state["round"] = float64(1)
+	}
 
 	// Try parsing state changes from content
 	if action == "ACT" {
@@ -254,7 +260,15 @@ func updateWorldState(stateJSON, action, content string) string {
 }
 
 func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("[RoomRun] panic: %v", rec)
+			writeError(w, http.StatusInternalServerError, "internal error")
+		}
+	}()
+
 	roomID := r.PathValue("id")
+	log.Printf("[RoomRun] starting for room %s", roomID)
 	if h.llmClient == nil {
 		writeError(w, http.StatusServiceUnavailable, "LLM not available")
 		return
