@@ -62,6 +62,7 @@ func (h *RoomHandler) createRoom(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Description: req.Description,
 		WorldRules:  req.WorldRules,
+		WorldState:  `{"round":0}`,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}

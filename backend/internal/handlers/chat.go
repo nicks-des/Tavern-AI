@@ -228,8 +228,27 @@ func updateWorldState(stateJSON, action, content string) string {
 	state := make(map[string]any)
 	json.Unmarshal([]byte(stateJSON), &state)
 	state["lastAction"] = action
-	state["lastActionContent"] = content
-	state["timestamp"] = time.Now().Unix()
+	state["lastActionBy"] = time.Now().Format("15:04")
+	state["round"] = state["round"].(float64) + 1
+
+	// Try parsing state changes from content
+	if action == "ACT" {
+		if strings.Contains(content, "离开") || strings.Contains(content, "leave") {
+			state["someoneLeft"] = true
+		}
+		if strings.Contains(content, "龙") || strings.Contains(content, "dragon") {
+			state["dragonAppeared"] = true
+		}
+		state["event"] = content
+	}
+	if action == "REVEAL" {
+		state["secretsRevealed"] = true
+		if strings.Contains(content, "国王") || strings.Contains(content, "king") {
+			state["kingSecret"] = content
+		}
+		state["reveal"] = content
+	}
+
 	result, _ := json.Marshal(state)
 	return string(result)
 }
@@ -423,14 +442,13 @@ The current world state is: %s
 Recent conversation:
 %s
 
-Given your personality, goal, and the current situation, what do you want to do?
-Respond with ONLY:
-- SPEAK: just say something in character
-- ACT: take an action that changes the world (e.g. leave the room, draw a weapon) - describe the action
-- REVEAL: share a secret you've been hiding
+Given your personality, goal, and the situation, choose:
+- SPEAK: say something in character
+- ACT: take action that changes the world (e.g. go somewhere, attack, investigate)
+- REVEAL: share your secret or important info
 
-Then write your response. For ACT/REVEAL, the world state will update automatically.
-Format: ACTION|content`, char.Name, char.Goal, char.Secret, worldState, recentDialogue(recentMessages))
+Format: ACTION|your response
+Keep it 1-2 sentences.`, char.Name, char.Goal, char.Secret, worldState, recentDialogue(recentMessages))
 
 		decisionMessages := []llm.ChatMessage{
 			{Role: "system", Content: "You are a character making a decision. Keep it brief, 1-2 sentences. Format your response as ACTION|content where ACTION is SPEAK, ACT, or REVEAL."},

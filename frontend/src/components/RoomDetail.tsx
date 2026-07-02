@@ -120,6 +120,9 @@ export function RoomDetail() {
       setAutoRunning(false)
       setStreamContent('')
       setStreamCharName('')
+      if (activeRoomId) {
+        roomApi.get(activeRoomId).then((data) => setRoom(data.room))
+      }
     }
   }
 
@@ -279,6 +282,13 @@ export function RoomDetail() {
         <div className="mx-4 mt-3 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 shrink-0">
           <p className="text-xs font-medium text-emerald-400 mb-1">世界规则</p>
           <p className="text-xs text-gray-300">{room.worldRules}</p>
+        </div>
+      )}
+
+      {room?.worldState && room.worldState !== '{}' && room.worldState !== '{"round":0}' && (
+        <div className="mx-4 mt-2 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 shrink-0">
+          <p className="text-xs font-medium text-amber-400 mb-1">世界状态</p>
+          <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{JSON.stringify(JSON.parse(room.worldState), null, 2)}</pre>
         </div>
       )}
 
