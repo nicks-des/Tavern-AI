@@ -17,9 +17,9 @@ func NewRoomRepo(db *database.DB) *RoomRepo {
 
 func (r *RoomRepo) Create(room *models.Room) error {
 	_, err := r.db.Exec(`
-		INSERT INTO rooms (id, name, description, world_rules, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		room.ID, room.Name, room.Description, room.WorldRules,
+		INSERT INTO rooms (id, name, description, world_rules, world_state, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		room.ID, room.Name, room.Description, room.WorldRules, room.WorldState,
 		room.CreatedAt.Format(time.RFC3339), room.UpdatedAt.Format(time.RFC3339),
 	)
 	return err
@@ -29,8 +29,8 @@ func (r *RoomRepo) GetByID(id string) (*models.Room, error) {
 	var room models.Room
 	var ca, ua string
 	err := r.db.QueryRow(`
-		SELECT id, name, description, world_rules, created_at, updated_at
-		FROM rooms WHERE id=?`, id).Scan(&room.ID, &room.Name, &room.Description, &room.WorldRules, &ca, &ua)
+		SELECT id, name, description, world_rules, world_state, created_at, updated_at
+		FROM rooms WHERE id=?`, id).Scan(&room.ID, &room.Name, &room.Description, &room.WorldRules, &room.WorldState, &ca, &ua)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (r *RoomRepo) GetByID(id string) (*models.Room, error) {
 }
 
 func (r *RoomRepo) List() ([]models.Room, error) {
-	rows, err := r.db.Query(`SELECT id, name, description, world_rules, created_at, updated_at
+	rows, err := r.db.Query(`SELECT id, name, description, world_rules, world_state, created_at, updated_at
 		FROM rooms ORDER BY updated_at DESC`)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (r *RoomRepo) List() ([]models.Room, error) {
 	for rows.Next() {
 		var room models.Room
 		var ca, ua string
-		if err := rows.Scan(&room.ID, &room.Name, &room.Description, &room.WorldRules, &ca, &ua); err != nil {
+		if err := rows.Scan(&room.ID, &room.Name, &room.Description, &room.WorldRules, &room.WorldState, &ca, &ua); err != nil {
 			return nil, err
 		}
 		room.CreatedAt, _ = time.Parse(time.RFC3339, ca)
@@ -79,6 +79,12 @@ func (r *RoomRepo) AddMember(roomID, characterID, overrides string) error {
 	_, err := r.db.Exec(`
 		INSERT OR REPLACE INTO room_members (room_id, character_id, overrides)
 		VALUES (?, ?, ?)`, roomID, characterID, overrides)
+	return err
+}
+
+func (r *RoomRepo) UpdateWorldState(id string, state string) error {
+	_, err := r.db.Exec(`UPDATE rooms SET world_state=?, updated_at=? WHERE id=?`,
+		state, time.Now().Format(time.RFC3339), id)
 	return err
 }
 

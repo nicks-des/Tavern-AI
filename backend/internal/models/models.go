@@ -50,6 +50,7 @@ type Room struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
 	WorldRules  string       `json:"worldRules"`
+	WorldState  string       `json:"worldState"`
 	CreatedAt   time.Time    `json:"createdAt"`
 	UpdatedAt   time.Time    `json:"updatedAt"`
 }

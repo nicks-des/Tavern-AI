@@ -76,6 +76,7 @@ func runMigrations(db *sql.DB) error {
 			name TEXT NOT NULL,
 			description TEXT DEFAULT '',
 			world_rules TEXT DEFAULT '',
+			world_state TEXT DEFAULT '{}',
 			created_at DATETIME NOT NULL DEFAULT (datetime('now')),
 			updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 		)`,
@@ -125,6 +126,7 @@ func runMigrations(db *sql.DB) error {
 
 		`ALTER TABLE characters ADD COLUMN goal TEXT DEFAULT ''`,
 		`ALTER TABLE characters ADD COLUMN secret TEXT DEFAULT ''`,
+		`ALTER TABLE rooms ADD COLUMN world_state TEXT DEFAULT '{}'`,
 	}
 
 	for i, m := range migrations {

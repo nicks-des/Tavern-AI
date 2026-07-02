@@ -37,15 +37,56 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
-type chatMessage struct {
+func (c *Client) Chat(messages []ChatMessage) (string, error) {
+	body := chatRequest{
+		Model:       c.model,
+		Messages:    messages,
+		Stream:      false,
+		MaxTokens:   150,
+		Temperature: 0.7,
+	}
+
+	data, err := json.Marshal(body)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("POST", c.baseURL+"/chat/completions", bytes.NewReader(data))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var result chatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("no response from LLM")
+	}
+
+	return result.Choices[0].Message.Content, nil
+}
+
+type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
 type chatRequest struct {
-	Model    string        `json:"model"`
-	Messages []chatMessage `json:"messages"`
-	Stream   bool          `json:"stream"`
+	Model       string        `json:"model"`
+	Messages    []ChatMessage `json:"messages"`
+	Stream      bool          `json:"stream"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Temperature float64       `json:"temperature,omitempty"`
 }
 
 type streamChunk struct {
@@ -56,8 +97,14 @@ type streamChunk struct {
 	} `json:"choices"`
 }
 
-func (c *Client) BuildMessages(character *models.Character, history []models.Message, userMsg string, worldbookContext string, roomContext string, roomOverrides string) []chatMessage {
-	msgs := []chatMessage{}
+type chatResponse struct {
+	Choices []struct {
+		Message ChatMessage `json:"message"`
+	} `json:"choices"`
+}
+
+func (c *Client) BuildMessages(character *models.Character, history []models.Message, userMsg string, worldbookContext string, roomContext string, roomOverrides string) []ChatMessage {
+	msgs := []ChatMessage{}
 
 	systemPrompt := buildSystemPrompt(character)
 
@@ -75,14 +122,14 @@ func (c *Client) BuildMessages(character *models.Character, history []models.Mes
 	}
 
 	if systemPrompt != "" {
-		msgs = append(msgs, chatMessage{Role: "system", Content: systemPrompt})
+		msgs = append(msgs, ChatMessage{Role: "system", Content: systemPrompt})
 	}
 
 	for _, m := range history {
-		msgs = append(msgs, chatMessage{Role: m.Role, Content: m.Content})
+		msgs = append(msgs, ChatMessage{Role: m.Role, Content: m.Content})
 	}
 
-	msgs = append(msgs, chatMessage{Role: "user", Content: userMsg})
+	msgs = append(msgs, ChatMessage{Role: "user", Content: userMsg})
 
 	return msgs
 }
@@ -117,7 +164,7 @@ func buildSystemPrompt(c *models.Character) string {
 	return strings.Join(parts, "\n\n")
 }
 
-func (c *Client) ChatStream(messages []chatMessage, onToken func(token string)) (string, error) {
+func (c *Client) ChatStream(messages []ChatMessage, onToken func(token string)) (string, error) {
 	reqBody := chatRequest{
 		Model:    c.model,
 		Messages: messages,

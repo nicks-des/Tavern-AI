@@ -211,6 +211,28 @@ func matchKeywords(message, keywords string) bool {
 	return false
 }
 
+func recentDialogue(msgs []models.Message) string {
+	var lines []string
+	start := len(msgs) - 6
+	if start < 0 {
+		start = 0
+	}
+	for _, m := range msgs[start:] {
+		lines = append(lines, m.Content)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func updateWorldState(stateJSON, action, content string) string {
+	state := make(map[string]any)
+	json.Unmarshal([]byte(stateJSON), &state)
+	state["lastAction"] = action
+	state["lastActionContent"] = content
+	state["timestamp"] = time.Now().Unix()
+	result, _ := json.Marshal(state)
+	return string(result)
+}
+
 func (h *ChatHandler) runAutoConversation(w http.ResponseWriter, flusher http.Flusher, session *models.Session, currentChar *models.Character, history []models.Message, lastMsg *models.Message, roomContext string) {
 	const maxRounds = 4
 	rMsgs := make([]models.Message, len(history))
@@ -274,12 +296,72 @@ func (h *ChatHandler) runAutoConversation(w http.ResponseWriter, flusher http.Fl
 			}
 		}
 
-		roundPrompt := fmt.Sprintf(
-			"The conversation above is happening in a shared room. You are %s. Your goal: %s. Your secret: %s. Someone else just spoke. Respond naturally in character. Keep it brief, 1-3 sentences. Stay in character.",
-			char.Name, char.Goal, char.Secret,
+		// Load world state
+		worldState := "{}"
+		if room, err := h.roomRepo.GetByID(*session.RoomID); err == nil {
+			worldState = room.WorldState
+		}
+
+		// Step 1: Decision prompt
+		type autoDecision struct {
+			Action  string `json:"action"`  // SPEAK / ACT / REVEAL
+			Content string `json:"content"` // what to say or do
+		}
+
+		decisionPrompt := fmt.Sprintf(
+			`You are %s, with goal: "%s", secret: "%s".
+The current world state is: %s
+
+Recent conversation:
+%s
+
+Given your personality, goal, and the current situation, what do you want to do?
+Respond with ONLY:
+- SPEAK: just say something in character
+- ACT: take an action that changes the world (e.g. leave the room, draw a weapon) - describe the action
+- REVEAL: share a secret you've been hiding
+
+Then write your response. For ACT/REVEAL, the world state will update automatically.
+Format: ACTION|content`, char.Name, char.Goal, char.Secret, worldState, recentDialogue(recentMessages))
+
+		decisionMessages := []llm.ChatMessage{
+			{Role: "system", Content: "You are a character making a decision. Keep it brief, 1-2 sentences. Format your response as ACTION|content where ACTION is SPEAK, ACT, or REVEAL."},
+			{Role: "user", Content: decisionPrompt},
+		}
+
+		var decision autoDecision
+		decision.Action = "SPEAK"
+		rawDecision, err := h.llmClient.Chat(decisionMessages)
+		if err == nil {
+			parts := strings.SplitN(rawDecision, "|", 2)
+			if len(parts) == 2 {
+				action := strings.TrimSpace(parts[0])
+				content := strings.TrimSpace(parts[1])
+				if action == "ACT" || action == "REVEAL" || action == "SPEAK" {
+					decision.Action = action
+					decision.Content = content
+				}
+			} else {
+				decision.Content = rawDecision
+			}
+		}
+
+		// Step 2: Execute decision - update world state if needed
+		if decision.Action == "ACT" || decision.Action == "REVEAL" {
+			newState := updateWorldState(worldState, decision.Action, decision.Content)
+			h.roomRepo.UpdateWorldState(*session.RoomID, newState)
+		}
+
+		// Step 3: Send character name tag + generate response
+		fmt.Fprintf(w, "data: [%s]\n\n", char.Name)
+		flusher.Flush()
+
+		execPrompt := fmt.Sprintf(
+			"As %s, respond to the recent conversation. Your goal: %s. Secret: %s. World: %s. %s",
+			char.Name, char.Goal, char.Secret, worldState, decision.Content,
 		)
 
-		messages := h.llmClient.BuildMessages(char, recentMessages, roundPrompt, wbContext, roomContext, charOverrides)
+		messages := h.llmClient.BuildMessages(char, recentMessages, execPrompt, wbContext, roomContext, charOverrides)
 
 		fmt.Fprintf(w, "data: [%s]\n\n", char.Name)
 		flusher.Flush()
