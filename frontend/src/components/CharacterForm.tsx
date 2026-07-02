@@ -17,6 +17,8 @@ export function CharacterForm({ character, onSave, onCancel }: Props) {
   const [scenario, setScenario] = useState(character?.scenario ?? '')
   const [firstMessage, setFirstMessage] = useState(character?.firstMessage ?? '')
   const [exampleDialogue, setExampleDialogue] = useState(character?.exampleDialogue ?? '')
+  const [goal, setGoal] = useState(character?.goal ?? '')
+  const [secret, setSecret] = useState(character?.secret ?? '')
   const [tags, setTags] = useState(character?.tags.join(', ') ?? '')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -41,6 +43,8 @@ export function CharacterForm({ character, onSave, onCancel }: Props) {
       scenario: scenario.trim(),
       firstMessage: firstMessage.trim(),
       exampleDialogue: exampleDialogue.trim(),
+      goal: goal.trim(),
+      secret: secret.trim(),
       tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
     })
   }
@@ -267,6 +271,26 @@ export function CharacterForm({ character, onSave, onCancel }: Props) {
                         placeholder="User: ...&#10;Character: ..."
                         rows={3}
                         className="w-full bg-tavern-800/60 border border-tavern-600/50 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-accent/50 font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-amber-400 mb-1.5">角色目标</label>
+                      <input
+                        type="text"
+                        value={goal}
+                        onChange={(e) => setGoal(e.target.value)}
+                        placeholder="这个角色想要达成什么？如：找到国王的下落"
+                        className="w-full bg-tavern-800/60 border border-amber-500/30 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-amber-500/50"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-rose-400 mb-1.5">角色秘密</label>
+                      <input
+                        type="text"
+                        value={secret}
+                        onChange={(e) => setSecret(e.target.value)}
+                        placeholder="这个角色隐藏了什么？如：其实我知道国王在哪"
+                        className="w-full bg-tavern-800/60 border border-rose-500/30 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-rose-500/50"
                       />
                     </div>
                   </div>

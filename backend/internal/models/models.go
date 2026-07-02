@@ -20,6 +20,8 @@ type Character struct {
 	Scenario        string         `json:"scenario"`
 	FirstMessage    string         `json:"firstMessage"`
 	ExampleDialogue string         `json:"exampleDialogue"`
+	Goal           string         `json:"goal"`
+	Secret         string         `json:"secret"`
 	Tags            []string       `json:"tags"`
 	Scope           CharacterScope `json:"scope"`
 	RoomID          *string        `json:"roomId"`

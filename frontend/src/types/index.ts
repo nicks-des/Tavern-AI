@@ -11,6 +11,8 @@ export interface Character {
   scenario: string
   firstMessage: string
   exampleDialogue: string
+  goal?: string
+  secret?: string
   creator?: string
   tags: string[]
   scope: CharacterScope

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -63,6 +64,8 @@ func runMigrations(db *sql.DB) error {
 			first_message TEXT DEFAULT '',
 			example_dialogue TEXT DEFAULT '',
 			tags TEXT DEFAULT '[]',
+			goal TEXT DEFAULT '',
+			secret TEXT DEFAULT '',
 			scope TEXT NOT NULL DEFAULT 'global',
 			room_id TEXT,
 			created_at DATETIME NOT NULL DEFAULT (datetime('now'))
@@ -119,11 +122,19 @@ func runMigrations(db *sql.DB) error {
 			FOREIGN KEY (character_id) REFERENCES characters(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_worldbook_character ON world_book_entries(character_id)`,
+
+		`ALTER TABLE characters ADD COLUMN goal TEXT DEFAULT ''`,
+		`ALTER TABLE characters ADD COLUMN secret TEXT DEFAULT ''`,
 	}
 
 	for i, m := range migrations {
 		if _, err := db.Exec(m); err != nil {
-			return fmt.Errorf("migration %d: %w", i, err)
+			// Ignore "duplicate column" errors from ALTER TABLE
+			errStr := err.Error()
+			if !strings.Contains(errStr, "duplicate column") &&
+				!strings.Contains(errStr, "already exists") {
+				return fmt.Errorf("migration %d: %w", i, err)
+			}
 		}
 	}
 

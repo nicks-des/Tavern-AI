@@ -17,6 +17,7 @@ export function RoomDetail() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [streamContent, setStreamContent] = useState('')
+  const [streamCharName, setStreamCharName] = useState('')
   const abortRef = useRef<AbortController | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const globalChars = characters.filter((c) => c.scope === 'global')
@@ -74,6 +75,7 @@ export function RoomDetail() {
     }
     setMessages((prev) => [...prev, userMsg])
 
+    const selectedChar = characters.find((c) => c.id === selectedCharId)
     const aiMsgId = (Date.now() + 1).toString()
     setMessages((prev) => [...prev, {
       id: aiMsgId,
@@ -84,19 +86,20 @@ export function RoomDetail() {
     }])
     setStreaming(true)
     setStreamContent('')
+    setStreamCharName(selectedChar?.name ?? '')
+    let accumulated = ''
 
     try {
       const controller = new AbortController()
       abortRef.current = controller
 
-      const res = await sessionApi.chatStream(sid, content)
+      const res = await sessionApi.chatStream(sid, content, selectedCharId, activeRoomId)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
 
       const reader = res.body?.getReader()
       if (!reader) throw new Error('No stream')
 
       const decoder = new TextDecoder('utf-8')
-      let accumulated = ''
       let buffer = ''
 
       while (true) {
@@ -108,18 +111,45 @@ export function RoomDetail() {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           const data = line.slice(6).trim()
-          if (data === '[DONE]') break
+          if (data === '[DONE]') continue
           if (data.startsWith('[ERROR]')) continue
+
+          // Auto-convo character name tag: data: [Ryu]
+          if (data.startsWith('[') && data.endsWith(']') && data.length < 30) {
+            const charName = data.slice(1, -1)
+            const finalContent = accumulated
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last && last.isStreaming) {
+                updated[updated.length - 1] = { ...last, content: finalContent, isStreaming: false }
+              }
+              updated.push({
+                id: Date.now().toString() + Math.random(),
+                role: 'assistant',
+                content: '',
+                timestamp: Date.now(),
+                isStreaming: true,
+              })
+              return updated
+            })
+            accumulated = ''
+            setStreamCharName(charName)
+            setStreamContent('')
+            continue
+          }
+
           accumulated += data
           setStreamContent(accumulated)
         }
       }
 
+      const finalAfterLoop = accumulated
       setMessages((prev) => {
         const updated = [...prev]
         const last = updated[updated.length - 1]
-        if (last && last.role === 'assistant') {
-          updated[updated.length - 1] = { ...last, content: accumulated, isStreaming: false }
+        if (last && last.isStreaming) {
+          updated[updated.length - 1] = { ...last, content: finalAfterLoop, isStreaming: false }
         }
         return updated
       })
@@ -128,14 +158,26 @@ export function RoomDetail() {
       setMessages((prev) => {
         const updated = [...prev]
         const last = updated[updated.length - 1]
-        if (last && last.role === 'assistant') {
+        if (last && last.isStreaming) {
           updated[updated.length - 1] = { ...last, content: `[错误] ${msg}`, isStreaming: false }
         }
         return updated
       })
     } finally {
       setStreaming(false)
+      const finalContent = accumulated
+      if (finalContent) {
+        setMessages((prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last && last.isStreaming) {
+            updated[updated.length - 1] = { ...last, content: finalContent, isStreaming: false }
+          }
+          return updated
+        })
+      }
       setStreamContent('')
+      setStreamCharName('')
       abortRef.current = null
     }
   }
@@ -160,7 +202,7 @@ export function RoomDetail() {
         </div>
       )}
 
-      {/* Character selector + member bar */}
+      {/* Character selector */}
       <div className="px-4 py-2 flex items-center gap-3 border-b border-tavern-700/50 shrink-0">
         <select
           value={selectedCharId}
@@ -211,15 +253,21 @@ export function RoomDetail() {
             <p className="text-sm text-gray-500">选择角色后开始对话</p>
           </div>
         )}
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} />
-        ))}
+        {messages.map((msg) => {
+          const char = characters.find((c) => c.name === (msg as any).charName)
+          return <MessageBubble key={msg.id} message={msg} />
+        })}
         {streaming && streamContent && (
           <div className="px-4 py-3">
-            <div className="bg-tavern-800/60 rounded-2xl rounded-bl-md px-4 py-3 max-w-[75%]">
-              <div className="whitespace-pre-wrap text-sm text-gray-100">
-                {streamContent}
-                <span className="typing-cursor" />
+            <div className="max-w-[75%]">
+              {streamCharName && (
+                <p className="text-xs text-accent-light mb-1 ml-1">{streamCharName}</p>
+              )}
+              <div className="bg-tavern-800/60 rounded-2xl rounded-bl-md px-4 py-3">
+                <div className="whitespace-pre-wrap text-sm text-gray-100">
+                  {streamContent}
+                  <span className="typing-cursor" />
+                </div>
               </div>
             </div>
           </div>
@@ -235,7 +283,7 @@ export function RoomDetail() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
             }}
-            placeholder={selectedCharId ? '输入消息...' : '请先选择发言角色'}
+            placeholder={selectedCharId ? '输入消息（其他角色会自动回应）...' : '请先选择发言角色'}
             disabled={!selectedCharId || streaming}
             rows={1}
             className="flex-1 bg-tavern-800/60 border border-tavern-600/50 rounded-xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 resize-none focus:outline-none focus:border-accent/50 disabled:opacity-50"

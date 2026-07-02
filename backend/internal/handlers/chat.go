@@ -47,7 +47,9 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 
 	var req struct {
-		Message string `json:"message"`
+		Message     string  `json:"message"`
+		CharacterID string  `json:"characterId"`
+		RoomID      *string `json:"roomId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -56,6 +58,11 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 	if req.Message == "" {
 		writeError(w, http.StatusBadRequest, "message is required")
 		return
+	}
+
+	// Update session with room/character info if provided
+	if req.RoomID != nil || req.CharacterID != "" {
+		h.sessionRepo.UpdateContext(sessionID, req.CharacterID, req.RoomID)
 	}
 
 	session, err := h.sessionRepo.GetByID(sessionID)
@@ -155,6 +162,11 @@ func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
+
+	// Auto-conversation for room members
+	if session.RoomID != nil && h.roomRepo != nil && h.llmClient != nil {
+		h.runAutoConversation(w, flusher, session, character, history, aiMsg, roomContext)
+	}
 }
 
 func (h *ChatHandler) handleMockChat(w http.ResponseWriter, sessionID string, character *models.Character, msg string) {
@@ -197,4 +209,100 @@ func matchKeywords(message, keywords string) bool {
 		}
 	}
 	return false
+}
+
+func (h *ChatHandler) runAutoConversation(w http.ResponseWriter, flusher http.Flusher, session *models.Session, currentChar *models.Character, history []models.Message, lastMsg *models.Message, roomContext string) {
+	const maxRounds = 4
+	rMsgs := make([]models.Message, len(history))
+	copy(rMsgs, history)
+	recentMessages := append(rMsgs, *lastMsg)
+
+	members, err := h.roomRepo.ListMembers(*session.RoomID)
+	if err != nil || len(members) <= 1 {
+		return
+	}
+
+	lastSpeakerID := session.CharacterID
+	for round := 0; round < maxRounds; round++ {
+		var nextMember *models.RoomMember
+		for _, m := range members {
+			if m.CharacterID != lastSpeakerID {
+				nextMember = &m
+				break
+			}
+		}
+		for _, m := range members {
+			if m.CharacterID != lastSpeakerID && m.CharacterID != nextMember.CharacterID {
+				nextMember = &m
+				break
+			}
+		}
+
+		if nextMember == nil || nextMember.CharacterID == lastSpeakerID {
+			break
+		}
+
+		char, err := h.characterRepo.GetByID(nextMember.CharacterID)
+		if err != nil {
+			continue
+		}
+
+		wbContext := ""
+		if h.worldbookRepo != nil {
+			entries, _ := h.worldbookRepo.GetEnabledByCharacter(char.ID)
+			for _, e := range entries {
+				lastContent := lastMsg.Content
+				for _, rm := range recentMessages {
+					lastContent = rm.Content
+				}
+				_ = lastContent
+				if len(e.Keywords) > 0 {
+					for _, rm := range recentMessages {
+						if matchKeywords(rm.Content, e.Keywords) {
+							wbContext += e.Content + "\n"
+							break
+						}
+					}
+				}
+			}
+		}
+
+		charOverrides := ""
+		for _, m := range members {
+			if m.CharacterID == char.ID && m.Overrides != "" {
+				charOverrides = m.Overrides
+			}
+		}
+
+		roundPrompt := fmt.Sprintf(
+			"The conversation above is happening in a shared room. You are %s. Your goal: %s. Your secret: %s. Someone else just spoke. Respond naturally in character. Keep it brief, 1-3 sentences. Stay in character.",
+			char.Name, char.Goal, char.Secret,
+		)
+
+		messages := h.llmClient.BuildMessages(char, recentMessages, roundPrompt, wbContext, roomContext, charOverrides)
+
+		fmt.Fprintf(w, "data: [%s]\n\n", char.Name)
+		flusher.Flush()
+
+		response, err := h.llmClient.ChatStream(messages, func(token string) {
+			fmt.Fprintf(w, "data: %s\n\n", token)
+			flusher.Flush()
+		})
+
+		if err != nil {
+			continue
+		}
+
+		autoMsg := &models.Message{
+			ID:        generateID(),
+			SessionID: session.ID,
+			Role:      "assistant",
+			Content:   response,
+			Timestamp: time.Now(),
+		}
+		h.messageRepo.Create(autoMsg)
+		recentMessages = append(recentMessages, *autoMsg)
+		lastSpeakerID = char.ID
+		lastMsg = autoMsg
+	}
 }

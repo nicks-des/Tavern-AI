@@ -68,6 +68,8 @@ type createCharacterRequest struct {
 	Scenario        string              `json:"scenario"`
 	FirstMessage    string              `json:"firstMessage"`
 	ExampleDialogue string              `json:"exampleDialogue"`
+	Goal            string              `json:"goal"`
+	Secret          string              `json:"secret"`
 	Tags            []string            `json:"tags"`
 	Scope           models.CharacterScope `json:"scope"`
 	RoomID          *string             `json:"roomId"`
@@ -102,6 +104,8 @@ func (h *CharacterHandler) createCharacter(w http.ResponseWriter, r *http.Reques
 		Scenario:        req.Scenario,
 		FirstMessage:    req.FirstMessage,
 		ExampleDialogue: req.ExampleDialogue,
+		Goal:            req.Goal,
+		Secret:          req.Secret,
 		Tags:            req.Tags,
 		Scope:           req.Scope,
 		RoomID:          req.RoomID,

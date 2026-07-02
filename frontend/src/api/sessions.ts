@@ -18,10 +18,10 @@ export const sessionApi = {
   listMessages: (sessionId: string) =>
     api.get<Message[]>(`/sessions/${sessionId}/messages`),
 
-  chatStream: (sessionId: string, message: string) =>
+  chatStream: (sessionId: string, message: string, characterId?: string, roomId?: string) =>
     fetch(`/api/sessions/${sessionId}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, characterId, roomId }),
     }),
 }

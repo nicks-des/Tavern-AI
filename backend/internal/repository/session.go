@@ -64,6 +64,12 @@ func (r *SessionRepo) Touch(id string) error {
 	return err
 }
 
+func (r *SessionRepo) UpdateContext(id string, charID string, roomID *string) error {
+	_, err := r.db.Exec(`UPDATE sessions SET character_id=?, room_id=?, updated_at=? WHERE id=?`,
+		charID, roomID, time.Now().Format(time.RFC3339), id)
+	return err
+}
+
 func (r *SessionRepo) Delete(id string) error {
 	_, err := r.db.Exec("DELETE FROM sessions WHERE id=?", id)
 	return err
