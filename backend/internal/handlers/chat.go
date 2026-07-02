@@ -316,8 +316,8 @@ func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	const maxRounds = 10
+	memberIdx := 0
 	worldState := room.WorldState
-	lastSpeakerID := ""
 	recentMessages := []models.Message{}
 
 	for round := 0; round < maxRounds; round++ {
@@ -338,16 +338,9 @@ func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		var nextMember *models.RoomMember
-		for i := range members {
-			if members[i].CharacterID != lastSpeakerID {
-				nextMember = &members[i]
-				break
-			}
-		}
-		if nextMember == nil || nextMember.CharacterID == lastSpeakerID {
-			break
-		}
+		// Round-robin through all members
+		nextMember := &members[memberIdx%len(members)]
+		memberIdx++
 
 		char, err := h.characterRepo.GetByID(nextMember.CharacterID)
 		if err != nil {
@@ -409,7 +402,6 @@ What do you do? SPEAK|content, ACT|content, or REVEAL|content. Keep it 1-2 sente
 				CreatedAt:     time.Now(),
 			})
 		}
-		lastSpeakerID = char.ID
 	}
 
 	fmt.Fprint(w, "data: [DONE]\n\n")

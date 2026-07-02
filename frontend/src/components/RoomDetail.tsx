@@ -298,11 +298,38 @@ export function RoomDetail() {
         </button>
         <span className="text-sm font-medium text-gray-200">{room?.name ?? ''}</span>
         <button
-          onClick={autoRunning ? handleStop : handleAutoRun}
+          onClick={handleAutoRun ? handleStop : handleAutoRun}
           disabled={members.length < 2}
           className={`ml-auto px-3 py-1 rounded-lg text-xs font-medium transition-colors ${autoRunning ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30' : paused ? 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30' : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'} disabled:opacity-30`}
         >
           {autoRunning ? '暂停' : paused ? '继续运行' : '开始运行'}
+        </button>
+        <button
+          onClick={async () => {
+            if (!activeRoomId) return
+            await fetch(`http://localhost:8081/api/rooms/${activeRoomId}/messages`, { method: 'DELETE' })
+            setMessages([])
+            if (activeRoomId) roomApi.get(activeRoomId).then((data) => setRoom(data.room))
+          }}
+          className="px-2 py-1 rounded-lg text-xs font-medium text-rose-400/60 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+        >
+          重置
+        </button>
+        <button
+          onClick={async () => {
+            if (!activeRoomId) return
+            const res = await fetch(`http://localhost:8081/api/rooms/${activeRoomId}/export`)
+            const blob = await res.blob()
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `${room?.name ?? 'export'}.md`
+            a.click()
+            URL.revokeObjectURL(url)
+          }}
+          className="px-2 py-1 rounded-lg text-xs font-medium text-gray-400 hover:text-gray-200 hover:bg-tavern-700/50 transition-colors"
+        >
+          导出
         </button>
       </header>
 

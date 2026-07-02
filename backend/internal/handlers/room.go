@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/tavern-ai/backend/internal/models"
@@ -32,6 +34,8 @@ func (h *RoomHandler) Register(mux *http.ServeMux) {
 	// Room messages history
 	if h.msgRepo != nil {
 		mux.HandleFunc("GET /api/rooms/{id}/messages", h.listMessages)
+		mux.HandleFunc("GET /api/rooms/{id}/export", h.exportMessages)
+		mux.HandleFunc("DELETE /api/rooms/{id}/messages", h.resetWorld)
 	}
 }
 
@@ -186,4 +190,42 @@ func (h *RoomHandler) listMessages(w http.ResponseWriter, r *http.Request) {
 		msgs = []models.RoomMessage{}
 	}
 	writeJSON(w, http.StatusOK, msgs)
+}
+
+func (h *RoomHandler) exportMessages(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	room, err := h.repo.GetByID(id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
+	msgs, _ := h.msgRepo.ListByRoom(id)
+
+	var buf strings.Builder
+	buf.WriteString(fmt.Sprintf("# %s\n\n", room.Name))
+	buf.WriteString(fmt.Sprintf("> %s\n\n", room.Description))
+
+	if room.WorldRules != "" {
+		buf.WriteString(fmt.Sprintf("**世界规则**: %s\n\n", room.WorldRules))
+	}
+	if room.WorldState != "{}" && room.WorldState != `{"round":0}` {
+		buf.WriteString(fmt.Sprintf("**世界状态**: `%s`\n\n", room.WorldState))
+	}
+	buf.WriteString("---\n\n")
+
+	for _, m := range msgs {
+		buf.WriteString(fmt.Sprintf("**%s**: %s\n\n", m.CharacterName, m.Content))
+	}
+
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.md"`, room.Name))
+	w.Write([]byte(buf.String()))
+}
+
+func (h *RoomHandler) resetWorld(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	h.msgRepo.DeleteByRoom(id)
+	h.repo.UpdateWorldState(id, `{"round":0}`)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
 }
