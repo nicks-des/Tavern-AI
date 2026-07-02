@@ -48,7 +48,8 @@ func main() {
 	wbHandler.Register(mux)
 
 	roomRepo := repository.NewRoomRepo(db)
-	roomHandler := handlers.NewRoomHandler(roomRepo, charRepo)
+	roomMsgRepo := repository.NewRoomMessageRepo(db)
+	roomHandler := handlers.NewRoomHandler(roomRepo, charRepo, roomMsgRepo)
 	roomHandler.Register(mux)
 
 	var llmClient *llm.Client
@@ -63,7 +64,7 @@ func main() {
 		fmt.Println("LLM: no API key set, using mock mode")
 	}
 
-	chatHandler := handlers.NewChatHandler(sessionRepo, messageRepo, charRepo, wbRepo, roomRepo, llmClient)
+	chatHandler := handlers.NewChatHandler(sessionRepo, messageRepo, charRepo, wbRepo, roomRepo, roomMsgRepo, llmClient)
 	chatHandler.Register(mux)
 
 	fmt.Println("Endpoints: /health, /api/characters, /api/sessions, /api/sessions/{id}/chat")

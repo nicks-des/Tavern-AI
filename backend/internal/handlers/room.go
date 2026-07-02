@@ -12,10 +12,11 @@ import (
 type RoomHandler struct {
 	repo      *repository.RoomRepo
 	charRepo  *repository.CharacterRepo
+	msgRepo   *repository.RoomMessageRepo
 }
 
-func NewRoomHandler(repo *repository.RoomRepo, charRepo *repository.CharacterRepo) *RoomHandler {
-	return &RoomHandler{repo: repo, charRepo: charRepo}
+func NewRoomHandler(repo *repository.RoomRepo, charRepo *repository.CharacterRepo, msgRepo *repository.RoomMessageRepo) *RoomHandler {
+	return &RoomHandler{repo: repo, charRepo: charRepo, msgRepo: msgRepo}
 }
 
 func (h *RoomHandler) Register(mux *http.ServeMux) {
@@ -27,6 +28,11 @@ func (h *RoomHandler) Register(mux *http.ServeMux) {
 
 	mux.HandleFunc("POST /api/rooms/{id}/members", h.addMember)
 	mux.HandleFunc("DELETE /api/rooms/{id}/members/{charId}", h.removeMember)
+
+	// Room messages history
+	if h.msgRepo != nil {
+		mux.HandleFunc("GET /api/rooms/{id}/messages", h.listMessages)
+	}
 }
 
 func (h *RoomHandler) listRooms(w http.ResponseWriter, r *http.Request) {
@@ -168,4 +174,16 @@ func (h *RoomHandler) removeMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "removed"})
+}
+
+func (h *RoomHandler) listMessages(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	msgs, err := h.msgRepo.ListByRoom(id)
+	if err != nil {
+		msgs = []models.RoomMessage{}
+	}
+	if msgs == nil {
+		msgs = []models.RoomMessage{}
+	}
+	writeJSON(w, http.StatusOK, msgs)
 }

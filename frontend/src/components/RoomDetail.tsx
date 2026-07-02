@@ -31,6 +31,20 @@ export function RoomDetail() {
       setRoom(data.room)
       setMembers(data.members)
     }).catch(() => {})
+
+    fetch(`http://localhost:8081/api/rooms/${activeRoomId}/messages`)
+      .then(r => r.json())
+      .then((msgs: any[]) => {
+        if (Array.isArray(msgs)) {
+          setMessages(msgs.map((m: any) => ({
+            id: m.id,
+            role: 'assistant' as const,
+            content: `**${m.characterName}**: ${m.content}`,
+            timestamp: new Date(m.createdAt).getTime(),
+          })))
+        }
+      })
+      .catch(() => {})
   }, [activeRoomId])
 
   useEffect(() => {

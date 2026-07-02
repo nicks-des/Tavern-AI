@@ -62,6 +62,14 @@ type RoomMember struct {
 	Overrides string `json:"overrides"`
 }
 
+type RoomMessage struct {
+	ID            string    `json:"id"`
+	RoomID        string    `json:"roomId"`
+	CharacterName string    `json:"characterName"`
+	Content       string    `json:"content"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
 type WorldBookEntry struct {
 	ID          string    `json:"id"`
 	CharacterID string    `json:"characterId"`

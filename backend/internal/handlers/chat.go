@@ -19,6 +19,7 @@ type ChatHandler struct {
 	characterRepo *repository.CharacterRepo
 	worldbookRepo *repository.WorldBookRepo
 	roomRepo      *repository.RoomRepo
+	roomMsgRepo   *repository.RoomMessageRepo
 	llmClient     *llm.Client
 }
 
@@ -28,6 +29,7 @@ func NewChatHandler(
 	cr *repository.CharacterRepo,
 	wr *repository.WorldBookRepo,
 	rr *repository.RoomRepo,
+	rmr *repository.RoomMessageRepo,
 	lc *llm.Client,
 ) *ChatHandler {
 	return &ChatHandler{
@@ -36,6 +38,7 @@ func NewChatHandler(
 		characterRepo: cr,
 		worldbookRepo: wr,
 		roomRepo:      rr,
+		roomMsgRepo:   rmr,
 		llmClient:     lc,
 	}
 }
@@ -367,6 +370,15 @@ What do you do? SPEAK|content, ACT|content, or REVEAL|content. Keep it 1-2 sente
 		recentMessages = append(recentMessages, models.Message{
 			Role: "assistant", Content: resp,
 		})
+		if h.roomMsgRepo != nil {
+			_ = h.roomMsgRepo.Create(&models.RoomMessage{
+				ID:            generateID(),
+				RoomID:        roomID,
+				CharacterName: char.Name,
+				Content:       resp,
+				CreatedAt:     time.Now(),
+			})
+		}
 		lastSpeakerID = char.ID
 	}
 
