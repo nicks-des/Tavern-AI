@@ -41,6 +41,7 @@ func NewChatHandler(
 
 func (h *ChatHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/chat", h.handleChat)
+	mux.HandleFunc("POST /api/rooms/{id}/run", h.handleRoomRun)
 }
 
 func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +232,113 @@ func updateWorldState(stateJSON, action, content string) string {
 	state["timestamp"] = time.Now().Unix()
 	result, _ := json.Marshal(state)
 	return string(result)
+}
+
+func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+	if h.llmClient == nil {
+		writeError(w, http.StatusServiceUnavailable, "LLM not available")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, _ := w.(http.Flusher)
+
+	room, err := h.roomRepo.GetByID(roomID)
+	if err != nil {
+		fmt.Fprintf(w, "data: [ERROR] room not found\n\n")
+		flusher.Flush()
+		return
+	}
+
+	members, err := h.roomRepo.ListMembers(roomID)
+	if err != nil || len(members) < 2 {
+		fmt.Fprintf(w, "data: [ERROR] need at least 2 members\n\n")
+		flusher.Flush()
+		return
+	}
+
+	const maxRounds = 10
+	worldState := room.WorldState
+	lastSpeakerID := ""
+	recentMessages := []models.Message{}
+
+	for round := 0; round < maxRounds; round++ {
+		select {
+		case <-r.Context().Done():
+			return
+		default:
+		}
+
+		var nextMember *models.RoomMember
+		for i := range members {
+			if members[i].CharacterID != lastSpeakerID {
+				nextMember = &members[i]
+				break
+			}
+		}
+		if nextMember == nil || nextMember.CharacterID == lastSpeakerID {
+			break
+		}
+
+		char, err := h.characterRepo.GetByID(nextMember.CharacterID)
+		if err != nil {
+			continue
+		}
+
+		// Decision
+		decisionPrompt := fmt.Sprintf(
+			`You are %s, goal: "%s", secret: "%s". World state: %s.
+Conversation so far: %s
+What do you do? SPEAK|content, ACT|content, or REVEAL|content. Keep it 1-2 sentences.`,
+			char.Name, char.Goal, char.Secret, worldState, recentDialogue(recentMessages))
+
+		dm := []llm.ChatMessage{
+			{Role: "system", Content: "You are a character in a story. Respond with ACTION|content. Keep it brief."},
+			{Role: "user", Content: decisionPrompt},
+		}
+		raw, err := h.llmClient.Chat(dm)
+		if err != nil {
+			continue
+		}
+
+		action := "SPEAK"
+		content := raw
+		if parts := strings.SplitN(raw, "|", 2); len(parts) == 2 {
+			if a := strings.TrimSpace(parts[0]); a == "ACT" || a == "REVEAL" || a == "SPEAK" {
+				action = a
+				content = strings.TrimSpace(parts[1])
+			}
+		}
+
+		if action == "ACT" || action == "REVEAL" {
+			worldState = updateWorldState(worldState, action, content)
+			h.roomRepo.UpdateWorldState(roomID, worldState)
+		}
+
+		fmt.Fprintf(w, "data: [%s]\n\n", char.Name)
+		flusher.Flush()
+
+		execPrompt := fmt.Sprintf("As %s: %s", char.Name, content)
+		msgs := h.llmClient.BuildMessages(char, recentMessages, execPrompt, "", room.WorldRules, "")
+		resp, err := h.llmClient.ChatStream(msgs, func(token string) {
+			fmt.Fprintf(w, "data: %s\n\n", token)
+			flusher.Flush()
+		})
+		if err != nil {
+			continue
+		}
+
+		recentMessages = append(recentMessages, models.Message{
+			Role: "assistant", Content: resp,
+		})
+		lastSpeakerID = char.ID
+	}
+
+	fmt.Fprint(w, "data: [DONE]\n\n")
+	flusher.Flush()
 }
 
 func (h *ChatHandler) runAutoConversation(w http.ResponseWriter, flusher http.Flusher, session *models.Session, currentChar *models.Character, history []models.Message, lastMsg *models.Message, roomContext string) {

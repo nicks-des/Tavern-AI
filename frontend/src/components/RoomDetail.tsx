@@ -18,6 +18,7 @@ export function RoomDetail() {
   const [streaming, setStreaming] = useState(false)
   const [streamContent, setStreamContent] = useState('')
   const [streamCharName, setStreamCharName] = useState('')
+  const [autoRunning, setAutoRunning] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const globalChars = characters.filter((c) => c.scope === 'global')
@@ -48,6 +49,78 @@ export function RoomDetail() {
     if (!activeRoomId) return
     await roomApi.removeMember(activeRoomId, characterId)
     setMembers(members.filter((m) => m.characterId !== characterId))
+  }
+
+  const handleAutoRun = async () => {
+    if (!activeRoomId || autoRunning) return
+    setAutoRunning(true)
+    setMessages([])
+
+    try {
+      const res = await fetch(`/api/rooms/${activeRoomId}/run`, { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+      const reader = res.body?.getReader()
+      if (!reader) return
+
+      const decoder = new TextDecoder('utf-8')
+      let accumulated = ''
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const d = line.slice(6).trim()
+          if (d === '[DONE]') continue
+          if (d.startsWith('[ERROR]')) continue
+
+          if (d.startsWith('[') && d.endsWith(']') && d.length < 30) {
+            const charName = d.slice(1, -1)
+            const finalContent = accumulated
+            if (finalContent) {
+              setMessages((prev) => {
+                const updated = [...prev]
+                const last = updated[updated.length - 1]
+                if (last && last.isStreaming) updated[updated.length - 1] = { ...last, content: finalContent, isStreaming: false }
+                return updated
+              })
+            }
+            accumulated = ''
+            setStreamCharName(charName)
+            setStreamContent('')
+            setMessages((prev) => [...prev, {
+              id: Date.now().toString() + Math.random(),
+              role: 'assistant', content: '', timestamp: Date.now(), isStreaming: true,
+            }])
+            continue
+          }
+
+          accumulated += d
+          setStreamContent(accumulated)
+        }
+      }
+
+      if (accumulated) {
+        const fc = accumulated
+        setMessages((prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last && last.isStreaming) updated[updated.length - 1] = { ...last, content: fc, isStreaming: false }
+          return updated
+        })
+      }
+    } catch (err: unknown) {
+      console.error('Auto run error:', err)
+    } finally {
+      setAutoRunning(false)
+      setStreamContent('')
+      setStreamCharName('')
+    }
   }
 
   const handleSend = async () => {
@@ -193,6 +266,13 @@ export function RoomDetail() {
           &larr; 返回
         </button>
         <span className="text-sm font-medium text-gray-200">{room?.name ?? ''}</span>
+        <button
+          onClick={handleAutoRun}
+          disabled={autoRunning || members.length < 2}
+          className={`ml-auto px-3 py-1 rounded-lg text-xs font-medium transition-colors ${autoRunning ? 'bg-amber-500/20 text-amber-400 animate-pulse' : 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'} disabled:opacity-30`}
+        >
+          {autoRunning ? '运行中...' : '开始运行'}
+        </button>
       </header>
 
       {room?.worldRules && (
