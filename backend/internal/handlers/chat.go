@@ -247,38 +247,111 @@ func compressHistory(client *llm.Client, msgs []models.Message) string {
 	return resp
 }
 
-func updateWorldState(stateJSON, action, content string) string {
-	state := make(map[string]any)
-	json.Unmarshal([]byte(stateJSON), &state)
+func updateWorldState(stateJSON, action, content, charName string) string {
+	state := initWorldState()
+	json.Unmarshal([]byte(stateJSON), state)
 	state["lastAction"] = action
-	state["lastActionBy"] = time.Now().Format("15:04")
+	state["lastActionBy"] = charName
 
-	if r, ok := state["round"].(float64); ok {
-		state["round"] = r + 1
-	} else {
-		state["round"] = float64(1)
+	round := state["round"].(float64)
+	state["round"] = round + 1
+
+	// Process ACT/REVEAL effects
+	if action == "ACT" || action == "REVEAL" {
+		events, _ := state["events"].([]any)
+		state["events"] = append(events, fmt.Sprintf("[%s] %s: %s", time.Now().Format("15:04"), charName, truncate(content, 60)))
 	}
 
-	// Try parsing state changes from content
-	if action == "ACT" {
-		if strings.Contains(content, "离开") || strings.Contains(content, "leave") {
-			state["someoneLeft"] = true
-		}
-		if strings.Contains(content, "龙") || strings.Contains(content, "dragon") {
-			state["dragonAppeared"] = true
-		}
-		state["event"] = content
-	}
 	if action == "REVEAL" {
-		state["secretsRevealed"] = true
-		if strings.Contains(content, "国王") || strings.Contains(content, "king") {
-			state["kingSecret"] = content
-		}
-		state["reveal"] = content
+		setStatus(state, "secretsRevealed", true)
 	}
+
+	// Detect relationship keywords
+	contentLower := strings.ToLower(content)
+	rels := getRelationships(state)
+
+	if strings.Contains(contentLower, "信任") || strings.Contains(contentLower, "trust") {
+		affectClosest(rels, charName, "trust", 2)
+		state["relationships"] = rels
+	}
+	if strings.Contains(contentLower, "威胁") || strings.Contains(contentLower, "threat") || strings.Contains(contentLower, "杀") {
+		affectClosest(rels, charName, "fear", 2)
+		state["relationships"] = rels
+	}
+	if strings.Contains(contentLower, "抱歉") || strings.Contains(contentLower, "sorry") {
+		affectClosest(rels, charName, "trust", -1)
+		state["relationships"] = rels
+	}
+
+	state["relationships"] = rels
 
 	result, _ := json.Marshal(state)
 	return string(result)
+}
+
+func initWorldState() map[string]any {
+	return map[string]any{
+		"round":         float64(0),
+		"relationships": make(map[string]any),
+		"charStatus":    make(map[string]any),
+		"events":        []any{},
+		"lastAction":    "",
+		"lastActionBy":  "",
+	}
+}
+
+func getRelationships(state map[string]any) map[string]any {
+	rels, ok := state["relationships"].(map[string]any)
+	if !ok {
+		return make(map[string]any)
+	}
+	if rels == nil {
+		return make(map[string]any)
+	}
+	return rels
+}
+
+func setStatus(state map[string]any, key string, val any) {
+	s, ok := state["charStatus"].(map[string]any)
+	if !ok {
+		s = make(map[string]any)
+	}
+	s[key] = val
+	state["charStatus"] = s
+}
+
+func affectClosest(rels map[string]any, actor string, stat string, delta float64) {
+	// Find the last person this actor interacted with and affect that relationship
+	for k, v := range rels {
+		if strings.Contains(k, actor+"::") {
+			if r, ok := v.(map[string]any); ok {
+				if cur, ok := r[stat].(float64); ok {
+					r[stat] = clampStat(cur + delta, 0, 10)
+				} else {
+					r[stat] = clampStat(5+delta, 0, 10)
+				}
+				return
+			}
+		}
+	}
+}
+
+func clampStat(v, min, max float64) float64 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
+}
+
+func truncate(s string, max int) string {
+	runes := []rune(s)
+	if len(runes) <= max {
+		return s
+	}
+	return string(runes[:max]) + "..."
 }
 
 func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
@@ -315,7 +388,7 @@ func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const maxRounds = 10
+	const maxRounds = 4 // auto-conversation stays at 4
 	memberIdx := 0
 	worldState := room.WorldState
 	recentMessages := []models.Message{}
@@ -373,7 +446,7 @@ What do you do? SPEAK|content, ACT|content, or REVEAL|content. Keep it 1-2 sente
 		}
 
 		if action == "ACT" || action == "REVEAL" {
-			worldState = updateWorldState(worldState, action, content)
+			worldState = updateWorldState(worldState, action, content, char.Name)
 			h.roomRepo.UpdateWorldState(roomID, worldState)
 		}
 
@@ -522,7 +595,7 @@ Keep it 1-2 sentences.`, char.Name, char.Goal, char.Secret, worldState, recentDi
 
 		// Step 2: Execute decision - update world state if needed
 		if decision.Action == "ACT" || decision.Action == "REVEAL" {
-			newState := updateWorldState(worldState, decision.Action, decision.Content)
+			newState := updateWorldState(worldState, decision.Action, decision.Content, char.Name)
 			h.roomRepo.UpdateWorldState(*session.RoomID, newState)
 		}
 

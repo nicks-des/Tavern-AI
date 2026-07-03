@@ -72,7 +72,7 @@ func (h *RoomHandler) createRoom(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Description: req.Description,
 		WorldRules:  req.WorldRules,
-		WorldState:  `{"round":0}`,
+		WorldState:  `{"round":0,"relationships":{},"charStatus":{},"events":[]}`,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -226,6 +226,6 @@ func (h *RoomHandler) exportMessages(w http.ResponseWriter, r *http.Request) {
 func (h *RoomHandler) resetWorld(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	h.msgRepo.DeleteByRoom(id)
-	h.repo.UpdateWorldState(id, `{"round":0}`)
+	h.repo.UpdateWorldState(id, `{"round":0,"relationships":{},"charStatus":{},"events":[]}`)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "reset"})
 }

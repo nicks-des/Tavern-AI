@@ -7,7 +7,7 @@ import { MessageBubble } from './MessageBubble'
 import type { Room, RoomMember, Message } from '../types'
 
 export function RoomDetail() {
-  const { activeRoomId, setActiveRoom, characters } = useStore()
+  const { activeRoomId, setActiveRoom, characters, addCharacter, loadCharacters } = useStore()
   const [room, setRoom] = useState<Room | null>(null)
   const [members, setMembers] = useState<RoomMember[]>([])
   const [showAddMember, setShowAddMember] = useState(false)
@@ -20,6 +20,8 @@ export function RoomDetail() {
   const [streamCharName, setStreamCharName] = useState('')
   const [autoRunning, setAutoRunning] = useState(false)
   const [paused, setPaused] = useState(false)
+  const [showCreateChar, setShowCreateChar] = useState(false)
+  const [newChar, setNewChar] = useState({ name: '', personality: '', goal: '', secret: '' })
   const abortRef = useRef<AbortController | null>(null)
   const autoAbortRef = useRef<AbortController | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
@@ -65,6 +67,35 @@ export function RoomDetail() {
     if (!activeRoomId) return
     await roomApi.removeMember(activeRoomId, characterId)
     setMembers(members.filter((m) => m.characterId !== characterId))
+  }
+
+  const handleCreateChar = async () => {
+    if (!activeRoomId || !newChar.name.trim()) return
+    try {
+      const res = await fetch('http://localhost:8081/api/characters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newChar.name.trim(),
+          description: '',
+          personality: newChar.personality.trim(),
+          goal: newChar.goal.trim(),
+          secret: newChar.secret.trim(),
+          scenario: '',
+          tags: [],
+        }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const char = await res.json()
+      addCharacter(char)
+      await roomApi.addMember(activeRoomId, char.id)
+      roomApi.get(activeRoomId).then((data) => setMembers(data.members))
+      setNewChar({ name: '', personality: '', goal: '', secret: '' })
+      setShowCreateChar(false)
+      setShowAddMember(false)
+    } catch (e) {
+      console.error('Create char error:', e)
+    }
   }
 
   const handleStop = () => {
@@ -340,22 +371,45 @@ export function RoomDetail() {
         </div>
       )}
 
-      {room?.worldState && room.worldState !== '{}' && room.worldState !== '{"round":0}' && (() => {
+      {room?.worldState && room.worldState !== '{}' && room.worldState !== `{"round":0,"relationships":{},"charStatus":{},"events":[]}` && (() => {
         try {
           const state = JSON.parse(room.worldState)
-          const keys = Object.entries(state).filter(([k]) => !['round'].includes(k))
-          if (keys.length === 0) return null
+          const rels = state.relationships || {}
+          const statuses = state.charStatus || {}
+          const events = (state.events || []).slice(-5)
+
           return (
-            <div className="mx-4 mt-2 bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 shrink-0">
-              <p className="text-xs font-medium text-amber-400 mb-2">世界状态</p>
-              <div className="flex flex-wrap gap-1.5">
-                {keys.map(([k, v]) => (
-                  <span key={k} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                    <span className="opacity-50">{k}</span>
-                    <span className="font-medium">{typeof v === 'string' ? v.slice(0, 20) : String(v)}</span>
-                  </span>
-                ))}
-              </div>
+            <div className="mx-4 mt-2 space-y-2 shrink-0">
+              {/* Relationships */}
+              {Object.keys(rels).length > 0 && (
+                <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3">
+                  <p className="text-xs font-medium text-purple-400 mb-2">关系图谱</p>
+                  <div className="space-y-1">
+                    {Object.entries(rels).map(([pair, r]: [string, any]) => {
+                      const parts = pair.split('::')
+                      return (
+                        <div key={pair} className="flex items-center gap-2 text-xs">
+                          <span className="text-gray-400">{parts[0]}</span>
+                          <span className="text-gray-600">{parts[1] ? '→' + parts[1] : ''}</span>
+                          <span className="ml-auto text-purple-300">
+                            {typeof r === 'object' ? `信任${r.trust ?? 5} 恐惧${r.fear ?? 0}` : String(r)}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Events */}
+              {events.length > 0 && (
+                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
+                  <p className="text-xs font-medium text-amber-400 mb-1">最近事件</p>
+                  {events.map((e: string, i: number) => (
+                    <p key={i} className="text-xs text-amber-300/70">{e}</p>
+                  ))}
+                </div>
+              )}
             </div>
           )
         } catch { return null }
@@ -389,18 +443,66 @@ export function RoomDetail() {
       </div>
 
       {showAddMember && (
-        <div className="mx-4 mt-2 p-2 bg-tavern-800/40 border border-tavern-700/50 rounded-xl max-h-[150px] overflow-y-auto shrink-0">
-          {availableChars.length === 0 ? (
-            <p className="text-xs text-gray-600 text-center py-2">所有角色已在房间中</p>
-          ) : (
-            availableChars.map((c) => (
-              <button key={c.id} onClick={() => handleAddMember(c.id)}
-                className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-tavern-700/50 text-left">
-                <CharacterAvatar name={c.name} size="sm" />
-                <span className="text-xs text-gray-300">{c.name}</span>
-                <span className="text-xs text-accent ml-auto">添加</span>
+        <div className="mx-4 mt-2 p-3 bg-tavern-800/40 border border-tavern-700/50 rounded-xl max-h-[280px] overflow-y-auto shrink-0 space-y-2">
+          {showCreateChar ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowCreateChar(false)} className="text-xs text-gray-400 hover:text-gray-200">&larr; 返回</button>
+                <span className="text-xs font-medium text-accent-light">快速创建角色</span>
+              </div>
+              <input
+                value={newChar.name}
+                onChange={(e) => setNewChar({ ...newChar, name: e.target.value })}
+                placeholder="角色名称*"
+                className="w-full bg-tavern-900/60 border border-tavern-600/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent/50"
+              />
+              <input
+                value={newChar.personality}
+                onChange={(e) => setNewChar({ ...newChar, personality: e.target.value })}
+                placeholder="性格特点"
+                className="w-full bg-tavern-900/60 border border-tavern-600/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent/50"
+              />
+              <input
+                value={newChar.goal}
+                onChange={(e) => setNewChar({ ...newChar, goal: e.target.value })}
+                placeholder="目标"
+                className="w-full bg-tavern-900/60 border border-tavern-600/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent/50"
+              />
+              <input
+                value={newChar.secret}
+                onChange={(e) => setNewChar({ ...newChar, secret: e.target.value })}
+                placeholder="秘密"
+                className="w-full bg-tavern-900/60 border border-tavern-600/50 rounded-lg px-3 py-1.5 text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent/50"
+              />
+              <button
+                onClick={handleCreateChar}
+                disabled={!newChar.name.trim()}
+                className="w-full py-1.5 rounded-lg text-xs font-medium bg-accent hover:bg-blue-600 text-white transition-colors disabled:opacity-30"
+              >
+                创建并加入房间
               </button>
-            ))
+            </div>
+          ) : (
+            <>
+              {availableChars.length === 0 ? (
+                <p className="text-xs text-gray-600 text-center py-2">所有角色已在房间中</p>
+              ) : (
+                availableChars.map((c) => (
+                  <button key={c.id} onClick={() => handleAddMember(c.id)}
+                    className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-tavern-700/50 text-left">
+                    <CharacterAvatar name={c.name} size="sm" />
+                    <span className="text-xs text-gray-300">{c.name}</span>
+                    <span className="text-xs text-accent ml-auto">添加</span>
+                  </button>
+                ))
+              )}
+              <button
+                onClick={() => setShowCreateChar(true)}
+                className="w-full py-2 rounded-lg text-xs font-medium text-accent-light border border-dashed border-accent/30 hover:border-accent/50 hover:bg-accent/5 transition-colors"
+              >
+                + 快速创建角色
+              </button>
+            </>
           )}
         </div>
       )}
