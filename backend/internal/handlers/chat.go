@@ -256,42 +256,104 @@ func updateWorldState(stateJSON, action, content, charName string) string {
 	round := state["round"].(float64)
 	state["round"] = round + 1
 
+	// World clock: advance 5 minutes per round
+	hr, min := parseClock(state["time"].(string))
+	min += 5
+	if min >= 60 { min -= 60; hr++ }
+	if hr >= 24 { hr = 0; d := state["day"].(float64); state["day"] = d + 1 }
+	state["time"] = fmt.Sprintf("%02d:%02d", hr, min)
+
 	// Process ACT/REVEAL effects
 	if action == "ACT" || action == "REVEAL" {
 		events, _ := state["events"].([]any)
-		state["events"] = append(events, fmt.Sprintf("[%s] %s: %s", time.Now().Format("15:04"), charName, truncate(content, 60)))
+		t := state["time"].(string)
+		state["events"] = append(events, fmt.Sprintf("[Day%d %s] %s: %s", int(state["day"].(float64)), t, charName, truncate(content, 60)))
 	}
 
-	if action == "REVEAL" {
-		setStatus(state, "secretsRevealed", true)
-	}
-
-	// Detect relationship keywords
 	contentLower := strings.ToLower(content)
+
+	// Character status changes
+	if strings.Contains(contentLower, "死") || strings.Contains(contentLower, "kill") || strings.Contains(contentLower, "杀") {
+		setStatus(state, charName, "dying")
+	}
+
+	// LLM-driven relationships: parse [REL: char::other trust+1 fear-2]
 	rels := getRelationships(state)
-
-	if strings.Contains(contentLower, "信任") || strings.Contains(contentLower, "trust") {
-		affectClosest(rels, charName, "trust", 2)
-		state["relationships"] = rels
+	for _, line := range []string{content, action + "|" + content} {
+		for {
+			start := strings.Index(line, "[REL:")
+			if start < 0 { break }
+			end := strings.Index(line[start:], "]") + start
+			if end <= start { break }
+			relStr := line[start+5 : end]
+			processRelation(rels, relStr)
+			line = line[end+1:]
+		}
 	}
-	if strings.Contains(contentLower, "威胁") || strings.Contains(contentLower, "threat") || strings.Contains(contentLower, "杀") {
-		affectClosest(rels, charName, "fear", 2)
-		state["relationships"] = rels
-	}
-	if strings.Contains(contentLower, "抱歉") || strings.Contains(contentLower, "sorry") {
-		affectClosest(rels, charName, "trust", -1)
-		state["relationships"] = rels
-	}
-
 	state["relationships"] = rels
 
 	result, _ := json.Marshal(state)
 	return string(result)
 }
 
+func parseClock(t string) (int, int) {
+	h, m := 8, 0
+	fmt.Sscanf(t, "%d:%d", &h, &m)
+	return h, m
+}
+
+func processRelation(rels map[string]any, spec string) {
+	// Format: char::other trust+1 fear-2
+	parts := strings.SplitN(spec, " ", 2)
+	if len(parts) != 2 { return }
+	key := strings.TrimSpace(parts[0])
+	mods := strings.TrimSpace(parts[1])
+
+	if _, exists := rels[key]; !exists {
+		rels[key] = map[string]any{"trust": float64(5), "fear": float64(0), "tag": ""}
+	}
+	r, ok := rels[key].(map[string]any)
+	if !ok { return }
+
+	for _, mod := range strings.Fields(mods) {
+		if strings.HasPrefix(mod, "trust") {
+			if v, err := fmt.Sscanf(mod, "trust%f", new(float64)); err == nil && v == 1 {
+				r["trust"] = clampStat(r["trust"].(float64)+float64(0), 0, 10)
+			}
+		}
+		if strings.HasPrefix(mod, "fear") {
+			if v, err := fmt.Sscanf(mod, "fear%f", new(float64)); err == nil && v == 1 {
+				r["fear"] = clampStat(r["fear"].(float64)+float64(0), 0, 10)
+			}
+		}
+	}
+
+	// Also handle explicit values: trust+2, fear-1
+	for _, mod := range strings.Fields(mods) {
+		val := float64(0)
+		parsed := false
+		if n := 0; strings.HasPrefix(mod, "trust+") {
+			fmt.Sscanf(mod, "trust+%d", &n); val = float64(n); parsed = true
+			r["trust"] = clampStat(r["trust"].(float64)+val, 0, 10)
+		} else if strings.HasPrefix(mod, "trust-") {
+			fmt.Sscanf(mod, "trust-%d", &n); val = -float64(n); parsed = true
+			r["trust"] = clampStat(r["trust"].(float64)+val, 0, 10)
+		} else if strings.HasPrefix(mod, "fear+") {
+			fmt.Sscanf(mod, "fear+%d", &n); val = float64(n); parsed = true
+			r["fear"] = clampStat(r["fear"].(float64)+val, 0, 10)
+		} else if strings.HasPrefix(mod, "fear-") {
+			fmt.Sscanf(mod, "fear-%d", &n); val = -float64(n); parsed = true
+			r["fear"] = clampStat(r["fear"].(float64)+val, 0, 10)
+		}
+		_ = parsed
+	}
+}
+
 func initWorldState() map[string]any {
 	return map[string]any{
 		"round":         float64(0),
+		"time":          "08:00",
+		"day":           float64(1),
 		"relationships": make(map[string]any),
 		"charStatus":    make(map[string]any),
 		"events":        []any{},
@@ -318,6 +380,20 @@ func setStatus(state map[string]any, key string, val any) {
 	}
 	s[key] = val
 	state["charStatus"] = s
+}
+
+func getCharStatus(state map[string]any, charID string) (string, bool) {
+	s, ok := state["charStatus"].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	// Search by name or ID
+	for k, v := range s {
+		if k == charID {
+			return fmt.Sprint(v), true
+		}
+	}
+	return "", false
 }
 
 func affectClosest(rels map[string]any, actor string, stat string, delta float64) {
@@ -352,6 +428,13 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return string(runes[:max]) + "..."
+}
+
+func getWorldKey(state map[string]any, key string) any {
+	if v, ok := state[key]; ok {
+		return v
+	}
+	return "?"
 }
 
 func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
@@ -411,9 +494,16 @@ func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Round-robin through all members
+		// Round-robin through all members, skip dead/dying
 		nextMember := &members[memberIdx%len(members)]
 		memberIdx++
+
+		// Check if character is dead
+		ws := make(map[string]any)
+		json.Unmarshal([]byte(worldState), &ws)
+		if status, ok := getCharStatus(ws, nextMember.CharacterID); ok && (status == "dead") {
+			continue
+		}
 
 		char, err := h.characterRepo.GetByID(nextMember.CharacterID)
 		if err != nil {
@@ -549,6 +639,8 @@ func (h *ChatHandler) runAutoConversation(w http.ResponseWriter, flusher http.Fl
 		if room, err := h.roomRepo.GetByID(*session.RoomID); err == nil {
 			worldState = room.WorldState
 		}
+		var ws2 map[string]any
+		json.Unmarshal([]byte(worldState), &ws2)
 
 		// Step 1: Decision prompt
 		type autoDecision struct {
@@ -558,18 +650,18 @@ func (h *ChatHandler) runAutoConversation(w http.ResponseWriter, flusher http.Fl
 
 		decisionPrompt := fmt.Sprintf(
 			`You are %s, with goal: "%s", secret: "%s".
-The current world state is: %s
+World: Time %v | Round %.0f | Status: %v
+Current relationships: %v
 
 Recent conversation:
 %s
 
-Given your personality, goal, and the situation, choose:
-- SPEAK: say something in character
-- ACT: take action that changes the world (e.g. go somewhere, attack, investigate)
-- REVEAL: share your secret or important info
-
+Choose action: SPEAK | ACT | REVEAL
 Format: ACTION|your response
-Keep it 1-2 sentences.`, char.Name, char.Goal, char.Secret, worldState, recentDialogue(recentMessages))
+
+When your action affects relationships, add [REL: Actr::Target trust+2] or [REL: Actr::Target fear-1]
+Actions with "kill/die/杀死/死亡" will mark characters as dying.`, char.Name, char.Goal, char.Secret,
+				getWorldKey(ws2, "time"), getWorldKey(ws2, "round"), ws2["charStatus"], ws2["relationships"], recentDialogue(recentMessages))
 
 		decisionMessages := []llm.ChatMessage{
 			{Role: "system", Content: "You are a character making a decision. Keep it brief, 1-2 sentences. Format your response as ACTION|content where ACTION is SPEAK, ACT, or REVEAL."},
