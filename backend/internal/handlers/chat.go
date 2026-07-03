@@ -46,6 +46,7 @@ func NewChatHandler(
 func (h *ChatHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/sessions/{id}/chat", h.handleChat)
 	mux.HandleFunc("POST /api/rooms/{id}/run", h.handleRoomRun)
+	mux.HandleFunc("POST /api/rooms/{id}/summarize", h.handleSummarize)
 }
 
 func (h *ChatHandler) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -299,6 +300,32 @@ func updateWorldState(stateJSON, action, content, charName string) string {
 	}
 	addMemory(memories, charName, truncate(content, 80))
 	state["charMemories"] = memories
+
+	// A: Character evolution - parse [EVOLVE: Name goal="xxx" secret="yyy"]
+	evolutions, _ := state["charEvolutions"].(map[string]any)
+	if evolutions == nil {
+		evolutions = make(map[string]any)
+	}
+	for _, line := range []string{content, action + "|" + content} {
+		for {
+			start := strings.Index(line, "[EVOLVE:")
+			if start < 0 { break }
+			end := strings.Index(line[start:], "]") + start
+			if end <= start { break }
+			spec := line[start+8 : end]
+			if parts := strings.SplitN(spec, " ", 2); len(parts) >= 1 {
+				name := strings.TrimSpace(parts[0])
+				evolutions[name] = map[string]any{
+					"reason":  truncate(content, 60),
+					"changes": parts[1],
+				}
+				events, _ := state["events"].([]any)
+				state["events"] = append(events, fmt.Sprintf("[EVOLVE] %s has changed: %s", name, parts[1]))
+			}
+			line = line[end+1:]
+		}
+	}
+	state["charEvolutions"] = evolutions
 
 	// B: Legacy system - when dying, transfer to others
 	if status, _ := state["charStatus"].(map[string]any); status != nil {
@@ -792,4 +819,41 @@ Actions with "kill/die/杀死/死亡" will mark characters as dying.`, char.Name
 		lastSpeakerID = char.ID
 		lastMsg = autoMsg
 	}
+}
+
+func (h *ChatHandler) handleSummarize(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("id")
+
+	room, err := h.roomRepo.GetByID(roomID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "room not found")
+		return
+	}
+
+	msgs, _ := h.roomMsgRepo.ListByRoom(roomID)
+	if len(msgs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]string{"summary": "暂无对话"})
+		return
+	}
+
+	var dialog strings.Builder
+	for _, m := range msgs {
+		dialog.WriteString(fmt.Sprintf("%s: %s\n", m.CharacterName, m.Content))
+	}
+
+	prompt := fmt.Sprintf(
+		`你是说书人。根据以下对话，写一篇短篇叙事摘要（200字左右），用文学化的语言：
+背景：%s (%s)
+状态：%s
+
+对话：%s
+
+用中文写摘要。`, room.Name, room.Description, room.WorldState, dialog.String())
+
+	resp, err := h.llmClient.Chat([]llm.ChatMessage{{Role: "user", Content: prompt}})
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "LLM error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"summary": resp})
 }

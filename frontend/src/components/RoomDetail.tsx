@@ -362,6 +362,21 @@ export function RoomDetail() {
         >
           导出
         </button>
+        <button
+          onClick={async () => {
+            if (!activeRoomId) return
+            setStreaming(true)
+            setStreamContent('')
+            setStreamCharName('说书人')
+            const res = await fetch(`http://localhost:8081/api/rooms/${activeRoomId}/summarize`, { method: 'POST' })
+            const data = await res.json()
+            setStreamContent(data.summary || '暂无对话')
+            setTimeout(() => setStreaming(false), 10000)
+          }}
+          className="px-2 py-1 rounded-lg text-xs font-medium text-cyan-400/60 hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+        >
+          摘要
+        </button>
       </header>
 
       {room?.worldRules && (
