@@ -22,6 +22,8 @@ export function RoomDetail() {
   const [paused, setPaused] = useState(false)
   const [showCreateChar, setShowCreateChar] = useState(false)
   const [newChar, setNewChar] = useState({ name: '', personality: '', goal: '', secret: '' })
+  const [myName, setMyName] = useState(() => localStorage.getItem('tavern-my-name') || '')
+  const [showMyName, setShowMyName] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const autoAbortRef = useRef<AbortController | null>(null)
   const chatRef = useRef<HTMLDivElement>(null)
@@ -328,6 +330,67 @@ export function RoomDetail() {
           &larr; 返回
         </button>
         <span className="text-sm font-medium text-gray-200">{room?.name ?? ''}</span>
+        {!myName && !showMyName && (
+          <button onClick={() => setShowMyName(true)} className="text-xs text-accent-light hover:text-accent ml-2">
+            我是谁？
+          </button>
+        )}
+        {showMyName && (
+          <div className="flex items-center gap-1 ml-2">
+            <input value={myName} onChange={(e) => setMyName(e.target.value)}
+              placeholder="你的名字"
+              className="w-20 bg-tavern-800/60 border border-tavern-600/50 rounded-lg px-2 py-0.5 text-xs text-gray-200 placeholder-gray-500 focus:outline-none focus:border-accent/50"
+              onKeyDown={(e) => { if (e.key === 'Enter') { localStorage.setItem('tavern-my-name', myName); setShowMyName(false) } }}
+            />
+            <button onClick={() => { localStorage.setItem('tavern-my-name', myName); setShowMyName(false) }}
+              className="text-xs text-accent hover:text-white">确定</button>
+          </div>
+        )}
+        {myName && !showMyName && (
+          <span className="text-xs text-accent-light/60 ml-1 cursor-pointer" onClick={() => setShowMyName(true)}>({myName})</span>
+        )}
+        <button
+          onClick={async () => {
+            if (!activeRoomId) return
+            const tpls = [
+              {name:'密室杀人',desc:'1935年庄园反锁书房谜案',rules:'1935年秋，暴风雨席卷乡下庄园。主人查尔斯死在反锁的书房中。每个人都在同一栋房子里，每个人都有嫌疑。',
+               chars:[{n:'莫里斯',p:'退休警探，观察入微',g:'找出真凶',s:'查尔斯死前借了高利贷',t:'让我再看看那个角落...'},
+                      {n:'伊芙琳',p:'庄园女管家，冷静但眼神闪烁',g:'掩盖自己的秘密',s:'我不是真正的伊芙琳',t:'先生，我没有动机...'},
+                      {n:'亨利',p:'查尔斯的侄子，浪荡缺钱',g:'继承庄园财产',s:'案发当晚我去过书房',t:'遗产本来就该是我的'}]},
+              {name:'宫廷阴谋',desc:'王位争夺，螳螂捕蝉',rules:'王宫深处，老王病危。大王子是法定继承人，二王子手握军权。宰相在暗中酝酿阴谋。',
+               chars:[{n:'宰相',p:'老谋深算，话中有话',g:'扶持傀儡，自己掌权',s:'我毒害了老王',t:'陛下只是偶染风寒...'},
+                      {n:'大王子',p:'正直但优柔寡断',g:'继承王位，改革朝政',s:'我知道阴谋但没有证据',t:'父王真的只是病了？'},
+                      {n:'二王子',p:'英勇但轻信莽撞',g:'证明自己更适合',s:'宰相承诺支持我继位',t:'军队听我号令'}]},
+              {name:'末日求生',desc:'丧尸爆发后第七天',rules:'城市沦陷。七个幸存者挤在废弃超市中。食物只够三天，丧尸越来越多。',
+               chars:[{n:'队长',p:'前消防员，果决但心软',g:'带所有人活着逃出去',s:'我被咬了但没告诉任何人',t:'大家跟紧！'},
+                      {n:'医生',p:'冷静理性但恐慌',g:'找到疫苗配方',s:'我知道队长被咬了',t:'让我看看伤口'},
+                      {n:'小偷',p:'自私但偶尔心软',g:'偷走食物自己跑',s:'后门有安全通道',t:'我只是想活命...'}]},
+            ]
+            for (const tpl of tpls) {
+              try {
+                const res = await fetch('http://localhost:8081/api/characters', {
+                  method: 'POST', headers: {'Content-Type':'application/json'},
+                  body: JSON.stringify({name:tpl.name,description:tpl.desc||'',personality:'',goal:'',secret:'',scenario:'',tags:[]})
+                })
+                const room = await res.json()
+                for (const c of tpl.chars) {
+                  const cr = await fetch('http://localhost:8081/api/characters', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({name:c.n,personality:c.p,goal:c.g,secret:c.s,scenario:'',tags:[]})
+                  })
+                  const char = await cr.json()
+                  addCharacter(char)
+                  await roomApi.addMember(activeRoomId, char.id)
+                }
+              } catch {}
+            }
+            roomApi.get(activeRoomId).then(d => setMembers(d.members))
+          }}
+          className="px-2 py-0.5 rounded text-[10px] font-medium text-purple-400/60 hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
+        >
+          场景模板
+        </button>
+        <div className="flex-1" />
         <button
           onClick={handleAutoRun ? handleStop : handleAutoRun}
           disabled={members.length < 2}
@@ -588,6 +651,7 @@ export function RoomDetail() {
             return (
               <div key={msg.id} className="flex gap-3 px-4 py-2 justify-end">
                 <div className="max-w-[70%] bg-accent text-white rounded-2xl rounded-br-md px-4 py-2.5 text-sm">
+                  {myName && <p className="text-xs text-blue-200 mb-1">{myName}</p>}
                   <p className="whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
