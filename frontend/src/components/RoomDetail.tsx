@@ -371,29 +371,70 @@ export function RoomDetail() {
         </div>
       )}
 
-      {room?.worldState && room.worldState !== '{}' && room.worldState !== `{"round":0,"relationships":{},"charStatus":{},"events":[]}` && (() => {
+      {room?.worldState && room.worldState !== '{}' && !room.worldState.startsWith('{"round":0,') && (() => {
         try {
           const state = JSON.parse(room.worldState)
           const rels = state.relationships || {}
           const statuses = state.charStatus || {}
+          const memories = state.charMemories || {}
           const events = (state.events || []).slice(-5)
+          const time = state.time || '08:00'
+          const day = state.day || 1
+          const round = state.round || 0
 
           return (
-            <div className="mx-4 mt-2 space-y-2 shrink-0">
-              {/* Relationships */}
+            <div className="mx-4 mt-2 space-y-2 shrink-0 text-xs">
+              {/* D: Clock Bar */}
+              <div className="flex items-center gap-2 bg-gradient-to-r from-tavern-900/50 to-transparent rounded-lg px-3 py-1.5">
+                <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium border border-amber-500/20">Day {day}</span>
+                <span className="text-gray-300 font-mono">{time}</span>
+                <div className="flex-1 h-px bg-gradient-to-r from-transparent to-tavern-700/50 mx-2" />
+                <span className="text-gray-600">R{round}</span>
+              </div>
+
+              {/* D: Character Status badges */}
+              {Object.keys(statuses).length > 0 && (
+                <div className="bg-teal-500/5 border border-teal-500/20 rounded-xl p-3">
+                  <p className="font-medium text-teal-400 mb-2">角色状态</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(statuses).map(([name, status]) => (
+                      <span key={name} className={`inline-flex gap-1 px-2.5 py-1 rounded-full border text-[11px] ${
+                        String(status) === 'dead' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                        String(status) === 'dying' ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 animate-pulse' :
+                        'bg-teal-500/10 text-teal-300 border-teal-500/20'
+                      }`}>
+                        <span className="opacity-60">{name}</span>
+                        <span className="font-bold">{status}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* D: Relationship Graph */}
               {Object.keys(rels).length > 0 && (
                 <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3">
-                  <p className="text-xs font-medium text-purple-400 mb-2">关系图谱</p>
-                  <div className="space-y-1">
-                    {Object.entries(rels).map(([pair, r]: [string, any]) => {
+                  <p className="font-medium text-purple-400 mb-2">关系图谱</p>
+                  <div className="space-y-1.5">
+                    {Object.entries(rels as Record<string, {trust?: number; fear?: number; tag?: string}>).map(([pair, r]) => {
                       const parts = pair.split('::')
+                      const t = r.trust ?? 5
+                      const f = r.fear ?? 0
                       return (
-                        <div key={pair} className="flex items-center gap-2 text-xs">
-                          <span className="text-gray-400">{parts[0]}</span>
-                          <span className="text-gray-600">{parts[1] ? '→' + parts[1] : ''}</span>
-                          <span className="ml-auto text-purple-300">
-                            {typeof r === 'object' ? `信任${r.trust ?? 5} 恐惧${r.fear ?? 0}` : String(r)}
-                          </span>
+                        <div key={pair} className="flex items-center gap-1.5">
+                          <span className="text-gray-400 w-14 truncate">{parts[0]}</span>
+                          <span className="text-gray-600 text-[10px]">→</span>
+                          <span className="text-gray-400 w-14 truncate">{parts[1] || ''}</span>
+                          <div className="flex-1 h-1.5 bg-tavern-800/50 rounded-full mx-1 overflow-hidden">
+                            <div className="flex h-full">
+                              <div className="bg-emerald-500/70 rounded-full transition-all" style={{width: `${t*10}%`}} />
+                              <div className="bg-orange-500/70 rounded-full transition-all" style={{width: `${f*10}%`}} />
+                            </div>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            <span className="text-emerald-400 w-8 text-right">❤{t}</span>
+                            <span className="text-orange-400 w-8 text-right">⚠{f}</span>
+                          </div>
                         </div>
                       )
                     })}
@@ -401,13 +442,22 @@ export function RoomDetail() {
                 </div>
               )}
 
-              {/* Events */}
+              {/* D: Events Timeline */}
               {events.length > 0 && (
                 <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
-                  <p className="text-xs font-medium text-amber-400 mb-1">最近事件</p>
-                  {events.map((e: string, i: number) => (
-                    <p key={i} className="text-xs text-amber-300/70">{e}</p>
-                  ))}
+                  <p className="font-medium text-amber-400 mb-2">时间线</p>
+                  <div className="space-y-1 pl-3 border-l border-amber-500/10">
+                    {events.map((e: string, i: number) => {
+                      const isWorld = e.startsWith('[WORLD]')
+                      const isLegacy = e.startsWith('[LEGACY]')
+                      return (
+                        <div key={i} className={`relative pl-3 py-0.5 ${isWorld ? 'text-yellow-300/80' : isLegacy ? 'text-purple-300/80' : 'text-amber-300/70'}`}>
+                          <div className={`absolute left-[-5px] top-[6px] w-2 h-2 rounded-full border ${isWorld ? 'bg-yellow-500 border-yellow-400' : isLegacy ? 'bg-purple-500 border-purple-400' : 'bg-amber-500/50 border-amber-400/50'}`} />
+                          <span className="leading-relaxed">{e}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </div>

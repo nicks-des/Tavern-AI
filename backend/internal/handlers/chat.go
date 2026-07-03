@@ -292,8 +292,64 @@ func updateWorldState(stateJSON, action, content, charName string) string {
 	}
 	state["relationships"] = rels
 
+	// A: Character memories - store important events
+	memories, _ := state["charMemories"].(map[string]any)
+	if memories == nil {
+		memories = make(map[string]any)
+	}
+	addMemory(memories, charName, truncate(content, 80))
+	state["charMemories"] = memories
+
+	// B: Legacy system - when dying, transfer to others
+	if status, _ := state["charStatus"].(map[string]any); status != nil {
+		if v, ok := status[charName]; ok && (v == "dying") {
+			events, _ := state["events"].([]any)
+			state["events"] = append(events, fmt.Sprintf("[LEGACY] %s's story lives on in the world", charName))
+		}
+	}
+
+	// C: World events - random every 5 rounds
+	intR := int(state["round"].(float64))
+	if intR%5 == 0 && intR > 0 {
+		events, _ := state["events"].([]any)
+		worldEvent := randomWorldEvent(intR / 5)
+		state["events"] = append(events, fmt.Sprintf("[WORLD] %s", worldEvent))
+		for k := range memories {
+			addMemory(memories, k, "[World Event] "+worldEvent)
+		}
+		state["charMemories"] = memories
+	}
+
 	result, _ := json.Marshal(state)
 	return string(result)
+}
+
+func addMemory(memories map[string]any, charName, content string) {
+	if memories[charName] == nil {
+		memories[charName] = []any{}
+	}
+	list, _ := memories[charName].([]any)
+	if len(list) > 5 {
+		list = list[1:]
+	}
+	list = append(list, fmt.Sprintf("[D%d] %s", 1, content))
+	memories[charName] = list
+}
+
+func randomWorldEvent(seed int) string {
+	events := []string{
+		"暴风雨突然降临，雷声震撼了整个地区",
+		"一位神秘的陌生人走进了酒馆",
+		"王国公告：叛军正在逼近王都",
+		"地窖里传来奇怪的声响",
+		"商会宣布粮价翻倍，整个城镇陷入恐慌",
+		"巡夜人发现一具无名尸体被遗弃在巷口",
+		"一个孩子在井边发现了一块发光的石头",
+		"东边的森林里升起了黑烟",
+		"王宫使者在广场上宣读新政令",
+		"从远方归来的商人带来了瘟疫的消息",
+	}
+	return events[seed%len(events)]
 }
 
 func parseClock(t string) (int, int) {
@@ -356,6 +412,7 @@ func initWorldState() map[string]any {
 		"day":           float64(1),
 		"relationships": make(map[string]any),
 		"charStatus":    make(map[string]any),
+		"charMemories":  make(map[string]any),
 		"events":        []any{},
 		"lastAction":    "",
 		"lastActionBy":  "",
@@ -430,6 +487,15 @@ func truncate(s string, max int) string {
 	return string(runes[:max]) + "..."
 }
 
+func getCharMemories(state map[string]any, charName string) []any {
+	mem, ok := state["charMemories"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	list, _ := mem[charName].([]any)
+	return list
+}
+
 func getWorldKey(state map[string]any, key string) any {
 	if v, ok := state[key]; ok {
 		return v
@@ -471,7 +537,7 @@ func (h *ChatHandler) handleRoomRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const maxRounds = 4 // auto-conversation stays at 4
+	const maxRounds = 50
 	memberIdx := 0
 	worldState := room.WorldState
 	recentMessages := []models.Message{}
